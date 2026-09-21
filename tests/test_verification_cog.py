@@ -353,7 +353,7 @@ async def test_on_member_join_auto_sync_already_verified(mock_bot, mock_service,
 
     # Should have called role assignment with faculty, campus, and study level roles
     mock_service.assign_role_across_guilds.assert_called_once_with(
-        user_id, "FOCS", [guild], campus_role_name="KL Main Campus", level_role_name="Degree"
+        user_id, "FOCS", [guild], campus_role_name="KL Main Campus", level_role_name="Degree", is_email_verified=False
     )
     # Should NOT have sent the new member tag message in welcome channel
     welcome_channel.send.assert_not_called()
@@ -397,7 +397,7 @@ async def test_on_member_join_auto_sync_with_branch_level_and_alumni(mock_bot, m
 
     # Should assign FAFB, Penang Branch, and Diploma roles
     mock_service.assign_role_across_guilds.assert_called_once_with(
-        user_id, "FAFB", [guild], campus_role_name="Penang Branch", level_role_name="Diploma"
+        user_id, "FAFB", [guild], campus_role_name="Penang Branch", level_role_name="Diploma", is_email_verified=False
     )
     # Should sync alumni role
     mock_service.sync_alumni_role_across_guilds.assert_called_once_with(

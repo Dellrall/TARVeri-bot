@@ -1365,6 +1365,269 @@ async def test_reconcile_verified_members_for_cpus_and_foundation_students(tmp_p
         await db.close()
 
 
+@pytest.mark.asyncio
+async def test_unverify_member_cross_server(tmp_path):
+    """Unverify member removes faculty, campus, level, and alumni roles across all mutual guilds."""
+    db = Database(str(tmp_path / "unverify_cross_server.db"))
+    await db.connect()
+
+    bot = MagicMock()
+    rate_limiter = RateLimiter()
+    service = VerificationService(bot, db, "secret_unverify", rate_limiter)
+
+    user_id = 987654
+
+    # Pre-record student in DB
+    await db.record_verification(user_id, "hash_unv", "M", campus_code="W", level_code="R")
+    await db.record_alumni_claim(user_id, 2024, "Bachelor of Computer Science")
+
+    # Guild 1
+    g1 = MagicMock(spec=discord.Guild)
+    g1.id = 1001
+    g1.name = "Main Guild"
+    bot_m1 = MagicMock(spec=discord.Member)
+    bot_m1.guild_permissions.manage_roles = True
+    bot_top1 = MagicMock(spec=discord.Role)
+    bot_top1.position = 20
+    bot_m1.top_role = bot_top1
+    g1.me = bot_m1
+
+    focs_r1 = MagicMock(spec=discord.Role)
+    focs_r1.name = "FOCS"
+    focs_r1.position = 5
+
+    camp_r1 = MagicMock(spec=discord.Role)
+    camp_r1.name = "KL Main Campus"
+    camp_r1.position = 4
+
+    alumni_r1 = MagicMock(spec=discord.Role)
+    alumni_r1.name = "TARUMT Alumni"
+    alumni_r1.position = 3
+
+    m_g1 = MagicMock(spec=discord.Member)
+    m_g1.id = user_id
+    m_g1.roles = [focs_r1, camp_r1, alumni_r1]
+    m_g1.remove_roles = AsyncMock()
+    g1.get_member.return_value = m_g1
+
+    # Guild 2
+    g2 = MagicMock(spec=discord.Guild)
+    g2.id = 1002
+    g2.name = "Gaming Club Guild"
+    bot_m2 = MagicMock(spec=discord.Member)
+    bot_m2.guild_permissions.manage_roles = True
+    bot_top2 = MagicMock(spec=discord.Role)
+    bot_top2.position = 20
+    bot_m2.top_role = bot_top2
+    g2.me = bot_m2
+
+    focs_r2 = MagicMock(spec=discord.Role)
+    focs_r2.name = "FOCS"
+    focs_r2.position = 6
+
+    m_g2 = MagicMock(spec=discord.Member)
+    m_g2.id = user_id
+    m_g2.roles = [focs_r2]
+    m_g2.remove_roles = AsyncMock()
+    g2.get_member.return_value = m_g2
+
+    bot.guilds = [g1, g2]
+
+    # Perform unverify
+    res = await service.unverify_member(user_id=user_id, admin=None, reason="Graduation test")
+    assert res["success"] is True
+    assert res["guilds_count"] == 2
+    assert len(res["roles_removed"]) == 4
+
+    # DB record is gone
+    assert await db.get_verification_by_user(user_id) is None
+    await db.close()
+
+
+@pytest.mark.asyncio
+async def test_tiered_verification_opt_in_vs_opt_out(tmp_path):
+    """
+    Tier 1 (Non-email verified):
+      - In Opt-Out guild -> auto-assigns roles.
+      - In Opt-In guild -> skips and flags requires_email_in.
+    Tier 2 (Email verified / High Trust):
+      - In Opt-Out guild -> auto-assigns roles.
+      - In Opt-In guild -> auto-assigns roles immediately.
+    """
+    db = Database(str(tmp_path / "tiered_verif.db"))
+    await db.connect()
+
+    bot = MagicMock()
+    rate_limiter = RateLimiter()
+    service = VerificationService(bot, db, "secret_tiered", rate_limiter)
+
+    # Opt-Out Guild (require_email_verification = 0)
+    g_opt_out = MagicMock(spec=discord.Guild)
+    g_opt_out.id = 2001
+    g_opt_out.name = "Opt-Out Guild"
+    bot_m1 = MagicMock(spec=discord.Member)
+    bot_m1.guild_permissions.manage_roles = True
+    bot_top1 = MagicMock(spec=discord.Role)
+    bot_top1.position = 20
+    bot_m1.top_role = bot_top1
+    g_opt_out.me = bot_m1
+    r_focs1 = MagicMock(spec=discord.Role)
+    r_focs1.name = "FOCS"
+    r_focs1.position = 5
+    g_opt_out.roles = [r_focs1]
+
+    m1 = MagicMock(spec=discord.Member)
+    m1.id = 555001
+    m1.roles = []
+    m1.add_roles = AsyncMock()
+    g_opt_out.get_member.return_value = m1
+
+    # Opt-In Guild (require_email_verification = 1)
+    g_opt_in = MagicMock(spec=discord.Guild)
+    g_opt_in.id = 2002
+    g_opt_in.name = "Opt-In Guild"
+    bot_m2 = MagicMock(spec=discord.Member)
+    bot_m2.guild_permissions.manage_roles = True
+    bot_top2 = MagicMock(spec=discord.Role)
+    bot_top2.position = 20
+    bot_m2.top_role = bot_top2
+    g_opt_in.me = bot_m2
+    r_focs2 = MagicMock(spec=discord.Role)
+    r_focs2.name = "FOCS"
+    r_focs2.position = 5
+    g_opt_in.roles = [r_focs2]
+
+    m2 = MagicMock(spec=discord.Member)
+    m2.id = 555001
+    m2.roles = []
+    m2.add_roles = AsyncMock()
+    g_opt_in.get_member.return_value = m2
+
+    bot.guilds = [g_opt_out, g_opt_in]
+
+    await db.set_guild_email_verification(g_opt_in.id, enabled=True)
+    await db.set_guild_email_verification(g_opt_out.id, enabled=False)
+
+    # 1. Tier 1 student (is_email_verified = False)
+    result_tier1 = await service.assign_role_across_guilds(
+        user_id=555001,
+        role_name="FOCS",
+        guilds=[g_opt_out, g_opt_in],
+        is_email_verified=False,
+    )
+    # Opt-Out guild got roles
+    assert any(g[0] == g_opt_out.id for g in result_tier1.verified_in)
+    # Opt-In guild was blocked and flagged
+    assert "Opt-In Guild" in result_tier1.requires_email_in
+    assert not any(g[0] == g_opt_in.id for g in result_tier1.verified_in)
+
+    # 2. Tier 2 student (is_email_verified = True)
+    result_tier2 = await service.assign_role_across_guilds(
+        user_id=555001,
+        role_name="FOCS",
+        guilds=[g_opt_out, g_opt_in],
+        is_email_verified=True,
+    )
+    # Both guilds got roles assigned immediately
+    assert len(result_tier2.requires_email_in) == 0
+    assert any(g[0] == g_opt_in.id for g in result_tier2.verified_in)
+    await db.close()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_self_healing_email_policy_and_unverified_cleanup(tmp_path):
+    """
+    Self-healing:
+      1. In Opt-In server, strips roles from non-email verified student.
+      2. In Opt-In server, restores roles to email-verified student.
+      3. Strips stray verified roles from unverified user.
+    """
+    db = Database(str(tmp_path / "reconcile_policy.db"))
+    await db.connect()
+
+    bot = MagicMock()
+    rate_limiter = RateLimiter()
+    service = VerificationService(bot, db, "secret_reconcile", rate_limiter)
+
+    guild = MagicMock(spec=discord.Guild)
+    guild.id = 3001
+    guild.name = "Opt-In Main"
+    bot_m = MagicMock(spec=discord.Member)
+    bot_m.guild_permissions.manage_roles = True
+    bot_top = MagicMock(spec=discord.Role)
+    bot_top.position = 25
+    bot_m.top_role = bot_top
+    guild.me = bot_m
+
+    focs_role = MagicMock(spec=discord.Role)
+    focs_role.name = "FOCS"
+    focs_role.position = 5
+    guild.roles = [focs_role]
+
+    await db.set_guild_email_verification(guild.id, enabled=True)
+
+    # User A (Tier 1: no email hash, but currently has FOCS role in Discord)
+    user_a = MagicMock(spec=discord.Member)
+    user_a.id = 10001
+    user_a.roles = [focs_role]
+    user_a.remove_roles = AsyncMock()
+    user_a.add_roles = AsyncMock()
+
+    # User B (Tier 2: has email hash, missing FOCS role in Discord)
+    user_b = MagicMock(spec=discord.Member)
+    user_b.id = 10002
+    user_b.roles = []
+    user_b.remove_roles = AsyncMock()
+    user_b.add_roles = AsyncMock()
+
+    # User C (Unverified: not in DB, but has FOCS role in Discord)
+    user_c = MagicMock(spec=discord.Member)
+    user_c.id = 10003
+    user_c.bot = False
+    user_c.roles = [focs_role]
+    user_c.remove_roles = AsyncMock()
+    user_c.add_roles = AsyncMock()
+
+    guild.members = [user_a, user_b, user_c]
+
+    def _get_m(uid):
+        if uid == 10001:
+            return user_a
+        elif uid == 10002:
+            return user_b
+        elif uid == 10003:
+            return user_c
+        return None
+
+    guild.get_member.side_effect = _get_m
+    bot.guilds = [guild]
+
+    # Record User A without email
+    await db.record_verification(10001, "hash_a", "M", campus_code="W", level_code="R")
+
+    # Record User B with email
+    await db.record_verification(
+        10002, "hash_b", "M", campus_code="W", level_code="R",
+        student_email_encrypted=b"enc", student_email_hash="email_hash_b"
+    )
+
+    summary = await service.reconcile_verified_members(guild)
+
+    # User A should have had role stripped
+    user_a.remove_roles.assert_called_once()
+    assert summary["unauthorized_cleaned"] == 1
+
+    # User B should have had role restored
+    user_b.add_roles.assert_called_once()
+    assert summary["restored"] >= 1
+
+    # User C should have had stray role stripped
+    user_c.remove_roles.assert_called_once()
+    assert summary["unverified_cleaned"] == 1
+
+    await db.close()
+
+
 
 
 

@@ -1743,6 +1743,46 @@ class VerificationCog(commands.Cog, name="Verification"):
         """Automatically assigns faculty, campus, study level, and alumni roles if member is already verified, else prompts and tags."""
         details = await self.db.get_verification_details(member.id)
         if details:
+            is_email_verified = bool(details.get("student_email_hash"))
+            guild_email_required = await self.db.is_guild_email_verification_enabled(member.guild.id)
+
+            if guild_email_required and not is_email_verified:
+                # User is Fast Verified (Tier 1), but server mandates institutional email OTP (Tier 2).
+                welcome_channel = await self.get_welcome_or_verify_channel(member.guild)
+                if welcome_channel:
+                    welcome_embed = discord.Embed(
+                        title="📧 Institutional Email Verification Required",
+                        description=(
+                            f"Welcome {member.mention} to **{member.guild.name}**!\n\n"
+                            "You are currently verified with TARVeri, but this server mandates "
+                            "**institutional email OTP verification** (`@student.tarc.edu.my`) for student access.\n\n"
+                            "Please click **Verify TARUMT Student** below or run `/verify` to link your institutional email."
+                        ),
+                        color=discord.Color.gold(),
+                    )
+                    welcome_embed.set_footer(text="TARVeri Verification System • Tiered Trust")
+                    view = (
+                        VerificationGatewayView(self.service, self.guest_service)
+                        if self.guest_service
+                        else None
+                    )
+                    try:
+                        await welcome_channel.send(
+                            content=f"👋 Welcome {member.mention}!",
+                            embed=welcome_embed,
+                            view=view,
+                        )
+                        await self.db.log(
+                            "INFO",
+                            "EMAIL_VERIFY_PROMPTED",
+                            f"Prompted returning student {member} (ID: {member.id}) for required email verification in '{member.guild.name}'",
+                            guild=member.guild,
+                            user_id=member.id,
+                        )
+                    except discord.HTTPException:
+                        pass
+                return
+
             stored_faculty = details.get("faculty_code")
             faculty_role = FACULTY_ROLES.get(stored_faculty)
             if faculty_role:
@@ -1757,6 +1797,7 @@ class VerificationCog(commands.Cog, name="Verification"):
                     [member.guild],
                     campus_role_name=campus_role,
                     level_role_name=level_role,
+                    is_email_verified=is_email_verified,
                 )
 
                 if details.get("is_alumni"):

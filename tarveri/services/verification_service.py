@@ -63,6 +63,7 @@ class RoleSyncResult:
     already_had_role_in: list[tuple[int, str, str]] = field(default_factory=list)  # (guild_id, guild_name, role_name)
     missing_role_in: list[str] = field(default_factory=list)
     failed_in: list[str] = field(default_factory=list)
+    requires_email_in: list[str] = field(default_factory=list)
 
 
 class VerificationService:
@@ -630,11 +631,22 @@ class VerificationService:
         result: RoleSyncResult,
         campus_role_name: str | None = None,
         level_role_name: str | None = None,
+        is_email_verified: bool = False,
     ) -> None:
         """Process role assignment in a single guild (faculty role + campus role + study level role)."""
         member = await self.get_or_fetch_member(guild, user_id)
         if member is None:
             return
+
+        # Check if the guild mandates institutional email verification (Opt-In)
+        if self.db and hasattr(guild, "id"):
+            try:
+                is_guild_email_required = await self.db.is_guild_email_verification_enabled(guild.id)
+                if is_guild_email_required and not is_email_verified:
+                    result.requires_email_in.append(guild.name)
+                    return
+            except Exception as exc:
+                logger.debug("Failed checking guild email policy for %s: %s", guild.id, exc)
 
         member_roles = getattr(member, "roles", [])
         if not isinstance(member_roles, (list, tuple)):
@@ -767,9 +779,11 @@ class VerificationService:
         guilds: Sequence[discord.Guild],
         campus_role_name: str | None = None,
         level_role_name: str | None = None,
+        is_email_verified: bool = False,
     ) -> RoleSyncResult:
         """
         Ensures the given user holds `role_name` (and optional campus & level roles) in all specified guilds concurrently.
+        Respects per-guild institutional email verification policies.
         """
         result = RoleSyncResult()
         if not guilds:
@@ -783,6 +797,7 @@ class VerificationService:
                 result,
                 campus_role_name=campus_role_name,
                 level_role_name=level_role_name,
+                is_email_verified=is_email_verified,
             )
             for g in guilds
         ]
@@ -806,6 +821,12 @@ class VerificationService:
             )
             if not result.verified_in:
                 lines.append("✅ Your student status is now officially verified in our database.")
+        if result.requires_email_in:
+            lines.append("📧 The following server(s) mandate institutional email OTP verification:")
+            lines.extend(
+                f"   • **{g}** (Verify your institutional email in that server to unlock roles)"
+                for g in result.requires_email_in
+            )
         if result.missing_role_in:
             lines.append("⚠️ I couldn't create/find the required role (contact an admin) in:")
             lines.extend(f"   • **{g}** (I likely need 'Manage Roles' permission there)" for g in result.missing_role_in)
@@ -1230,6 +1251,10 @@ class VerificationService:
                         raw_expiry_date=raw_expiry_date,
                     )
 
+                existing_details = await self.db.get_verification_details(user.id)
+                final_email_hash = email_hash or (existing_details.get("student_email_hash") if existing_details else None)
+                is_user_email_verified = bool(final_email_hash)
+
                 mutual_guilds = await self.get_mutual_guilds_for_user(user.id)
                 assigned_faculty_role = FACULTY_ROLES.get(stored_faculty, role_name)
                 sync_result = await self.assign_role_across_guilds(
@@ -1238,6 +1263,7 @@ class VerificationService:
                     mutual_guilds,
                     campus_role_name=campus_role_name,
                     level_role_name=level_role_name,
+                    is_email_verified=is_user_email_verified,
                 )
                 try:
                     await self.db.update_verification_details(
@@ -1273,12 +1299,14 @@ class VerificationService:
             if not mutual_guilds:
                 return "⚠️ I couldn't find you in any server I'm in. Please join the server first, then try again."
 
+            is_user_email_verified = bool(email_hash)
             sync_result = await self.assign_role_across_guilds(
                 user.id,
                 role_name,
                 mutual_guilds,
                 campus_role_name=campus_role_name,
                 level_role_name=level_role_name,
+                is_email_verified=is_user_email_verified,
             )
 
             # Persist if role was granted or user already held the role in at least one server
@@ -1369,10 +1397,12 @@ class VerificationService:
     ) -> dict[str, int]:
         """
         Self-healing: cross-references current guild members against the verifications table.
-        If a student verified in the database is missing their faculty, campus, or study level
-        roles in this guild, automatically restores and synchronizes them.
+        1. If a student verified in DB is missing faculty/campus/study-level roles in this guild,
+           restores and synchronizes them (subject to guild email verification policy).
+        2. If a student is in an email-mandated server without email verification, strips unauthorized roles.
+        3. If an unverified member holds verified roles, cleans up stray roles.
         """
-        summary = {"checked": 0, "restored": 0, "failed": 0}
+        summary = {"checked": 0, "restored": 0, "failed": 0, "unauthorized_cleaned": 0, "unverified_cleaned": 0}
         if not guild:
             return summary
 
@@ -1385,7 +1415,7 @@ class VerificationService:
 
         all_verifications = await self.db.get_all_verifications()
         if not all_verifications:
-            return summary
+            all_verifications = []
 
         me = getattr(guild, "me", None)
         can_manage = (
@@ -1396,13 +1426,63 @@ class VerificationService:
         bot_top_role = getattr(me, "top_role", None) if me else None
         bot_pos = getattr(bot_top_role, "position", 0) if bot_top_role else 0
 
+        guild_email_required = False
+        if self.db and hasattr(guild, "id"):
+            try:
+                guild_email_required = await self.db.is_guild_email_verification_enabled(guild.id)
+            except Exception as exc:
+                logger.debug("Failed checking guild email policy during reconciliation: %s", exc)
+
+        verified_user_ids: set[int] = set()
+
         for discord_user_id, _, faculty_code, _ in all_verifications:
+            verified_user_ids.add(discord_user_id)
             member = await self.get_or_fetch_member(guild, discord_user_id)
             if not member:
                 continue
 
             summary["checked"] += 1
             member_roles = getattr(member, "roles", [])
+            if not isinstance(member_roles, (list, tuple)):
+                member_roles = []
+
+            # Check eligibility if guild mandates email verification (Opt-In)
+            details = await self.db.get_verification_details(discord_user_id)
+            is_email_verified = bool(details.get("student_email_hash")) if details else False
+
+            if guild_email_required and not is_email_verified:
+                # Member is only Fast Verified (Tier 1), but server mandates institutional email (Tier 2).
+                # Strip any existing verified roles in this server.
+                roles_to_strip = [
+                    r
+                    for r in member_roles
+                    if any(self._match_faculty_role_in_list([r], fac) is not None for fac in FACULTY_ROLE_NAMES)
+                    or any(self._match_campus_role_in_list([r], camp) is not None for camp in CAMPUS_ROLE_NAMES)
+                    or any(self._match_study_level_role_in_list([r], lvl) is not None for lvl in STUDY_LEVEL_ROLE_NAMES)
+                    or self._match_alumni_role_in_list([r]) is not None
+                ]
+                strip_manageable = [r for r in roles_to_strip if getattr(r, "position", 0) < bot_pos]
+                if strip_manageable and can_manage:
+                    try:
+                        await member.remove_roles(
+                            *strip_manageable,
+                            reason="TARVeri Self-Healing: Stripped verified roles from non-email-verified member in email-mandated server",
+                        )
+                        summary["unauthorized_cleaned"] += len(strip_manageable)
+                        await self.db.log(
+                            "INFO",
+                            "ROLE_POLICY_ENFORCED",
+                            f"Self-healing: Removed {len(strip_manageable)} role(s) from {member} (ID: {discord_user_id}) - requires institutional email verification in '{guild.name}'",
+                            guild=guild,
+                            user_id=discord_user_id,
+                        )
+                    except discord.HTTPException as exc:
+                        logger.warning(
+                            f"Could not strip unauthorized roles from {member} in {guild.name}: {exc}",
+                            exc_info=True,
+                        )
+                continue
+
             roles_to_add: list[discord.Role] = []
 
             # 1. Primary faculty role
@@ -1436,7 +1516,6 @@ class VerificationService:
                     summary["failed"] += 1
 
             # 2. Campus branch role
-            details = await self.db.get_verification_details(discord_user_id)
             c_code = details.get("campus_code") if details else None
 
             # Detect if member already holds a campus role in Discord
@@ -1528,10 +1607,45 @@ class VerificationService:
                         f"Failed to restore roles for {member} in '{guild.name}': {e}"
                     )
 
-        if summary["restored"] > 0:
+        # 4. Clean up unverified members who erroneously hold verified roles
+        guild_members = getattr(guild, "members", [])
+        if isinstance(guild_members, (list, tuple)):
+            for member in guild_members:
+                if member.id not in verified_user_ids and not getattr(member, "bot", False):
+                    stray_roles = [
+                        r
+                        for r in getattr(member, "roles", [])
+                        if any(self._match_faculty_role_in_list([r], fac) is not None for fac in FACULTY_ROLE_NAMES)
+                        or any(self._match_campus_role_in_list([r], camp) is not None for camp in CAMPUS_ROLE_NAMES)
+                        or any(self._match_study_level_role_in_list([r], lvl) is not None for lvl in STUDY_LEVEL_ROLE_NAMES)
+                        or self._match_alumni_role_in_list([r]) is not None
+                    ]
+                    stray_manageable = [r for r in stray_roles if getattr(r, "position", 0) < bot_pos]
+                    if stray_manageable and can_manage:
+                        try:
+                            await member.remove_roles(
+                                *stray_manageable,
+                                reason="TARVeri Self-Healing: Removed verified roles from unverified member",
+                            )
+                            summary["unverified_cleaned"] += len(stray_manageable)
+                            await self.db.log(
+                                "INFO",
+                                "UNVERIFIED_ROLES_CLEANED",
+                                f"Self-healing: Removed {len(stray_manageable)} stray verified role(s) from unverified member {member} (ID: {member.id}) in '{guild.name}'",
+                                guild=guild,
+                                user_id=member.id,
+                            )
+                        except discord.HTTPException as exc:
+                            logger.warning(
+                                f"Could not remove stray verified roles from unverified member {member} in {guild.name}: {exc}",
+                                exc_info=True,
+                            )
+
+        if summary["restored"] > 0 or summary["unauthorized_cleaned"] > 0 or summary["unverified_cleaned"] > 0:
             logger.info(
                 f"[{guild.name}] Self-healing verified member reconciliation: "
-                f"Checked {summary['checked']}, Restored {summary['restored']}, Failed {summary['failed']}"
+                f"Checked {summary['checked']}, Restored {summary['restored']}, "
+                f"Unauthorized Cleaned {summary['unauthorized_cleaned']}, Unverified Cleaned {summary['unverified_cleaned']}, Failed {summary['failed']}"
             )
 
         return summary
@@ -1699,6 +1813,95 @@ class VerificationService:
             "success": True,
             "target_id": target_user.id,
             "roles_removed_count": len(roles_removed),
+        }
+
+    async def unverify_member(
+        self,
+        user_id: int,
+        admin: discord.User | discord.Member | None = None,
+        current_guild: discord.Guild | None = None,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Unlinks verification from DB, resets rate limit, and strips faculty, campus, study level,
+        and alumni roles across all mutual servers.
+        """
+        verif = await self.db.get_verification_by_user(user_id)
+        if not verif:
+            return {
+                "success": False,
+                "message": f"User ID `{user_id}` is not currently verified in the database.",
+                "roles_removed": [],
+                "guilds_count": 0,
+            }
+
+        mutual_guilds = await self.get_mutual_guilds_for_user(user_id)
+        roles_removed: list[str] = []
+        guilds_affected: set[int] = set()
+        clean_reason = reason or "No reason provided"
+
+        for guild in mutual_guilds:
+            member = await self.get_or_fetch_member(guild, user_id)
+            if not member:
+                continue
+
+            roles_to_remove = [
+                r
+                for r in getattr(member, "roles", [])
+                if any(self._match_faculty_role_in_list([r], fac) is not None for fac in FACULTY_ROLE_NAMES)
+                or any(self._match_campus_role_in_list([r], camp) is not None for camp in CAMPUS_ROLE_NAMES)
+                or any(self._match_study_level_role_in_list([r], lvl) is not None for lvl in STUDY_LEVEL_ROLE_NAMES)
+                or self._match_alumni_role_in_list([r]) is not None
+            ]
+
+            me = getattr(guild, "me", None)
+            can_manage = (
+                getattr(me.guild_permissions, "manage_roles", False)
+                if me and hasattr(me, "guild_permissions")
+                else False
+            )
+            bot_top = getattr(me, "top_role", None)
+            bot_pos = getattr(bot_top, "position", 0) if bot_top else 0
+
+            for role in roles_to_remove:
+                role_pos = getattr(role, "position", 0)
+                if (
+                    can_manage
+                    and isinstance(bot_pos, int)
+                    and isinstance(role_pos, int)
+                    and role_pos < bot_pos
+                ):
+                    try:
+                        admin_str = str(admin) if admin else "Admin"
+                        await member.remove_roles(
+                            role,
+                            reason=f"TARVeri: Verification unlinked by {admin_str}. Reason: {clean_reason}",
+                        )
+                        roles_removed.append(f"{guild.name} ({role.name})")
+                        guilds_affected.add(guild.id)
+                    except discord.HTTPException as e:
+                        logger.warning(
+                            f"Could not remove role {role.name} from {member} in {guild.name}: {e}",
+                            exc_info=True,
+                        )
+
+        await self.db.delete_verification(user_id)
+        self.rate_limiter.reset(user_id)
+
+        admin_desc = f"Admin {admin}" if admin else "Admin"
+        await self.db.log(
+            "WARNING",
+            "MEMBER_UNVERIFIED",
+            f"{admin_desc} unverified member ID {user_id}. Reason: {clean_reason}",
+            guild=current_guild,
+            user_id=user_id,
+        )
+
+        return {
+            "success": True,
+            "message": f"Successfully unverified user ID `{user_id}`.",
+            "roles_removed": roles_removed,
+            "guilds_count": len(guilds_affected),
         }
 
     async def reconcile_alumni_members(self, guild: discord.Guild) -> dict[str, int]:

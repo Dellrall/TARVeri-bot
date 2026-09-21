@@ -7,12 +7,7 @@ from typing import TYPE_CHECKING
 import discord
 from discord import ui
 
-from tarveri.config import (
-    CAMPUS_ROLE_NAMES,
-    FACULTY_ROLE_NAMES,
-    FACULTY_ROLES,
-    STUDY_LEVEL_ROLE_NAMES,
-)
+from tarveri.config import FACULTY_ROLES
 from tarveri.services.log_service import (
     archive_old_logs,
     list_daily_logs,
@@ -47,8 +42,8 @@ class UnverifyModal(ui.Modal, title="❌ Unverify Student"):
         max_length=64,
     )
     reason_input = ui.TextInput(
-        label="Reason for Unverifying",
-        placeholder="e.g. Graduated, unlinked on student request, discipline",
+        label="Reason for Unlinking Verification",
+        placeholder="e.g. Identity correction, student withdrawal",
         required=False,
         max_length=256,
         style=discord.TextStyle.paragraph,
@@ -66,61 +61,21 @@ class UnverifyModal(ui.Modal, title="❌ Unverify Student"):
             await interaction.followup.send("❌ Invalid User ID or mention provided.", ephemeral=True)
             return
 
-        verif = await self.cog.db.get_verification_by_user(user_id)
-        if not verif:
+        reason = self.reason_input.value.strip() or "Unverified via Admin Dashboard"
+        res = await self.cog.service.unverify_member(
+            user_id=user_id,
+            admin=interaction.user,
+            current_guild=interaction.guild,
+            reason=reason,
+        )
+
+        if not res.get("success"):
             await interaction.followup.send(
                 f"ℹ️ User with ID `{user_id}` is not currently verified in the database.", ephemeral=True
             )
             return
 
-        reason = self.reason_input.value.strip() or "Unverified via Admin Dashboard"
-        mutual_guilds = await self.cog.service.get_mutual_guilds_for_user(user_id)
-        roles_removed: list[str] = []
-
-        for guild in mutual_guilds:
-            member = await self.cog.service.get_or_fetch_member(guild, user_id)
-            if not member:
-                continue
-
-            roles_to_remove = [
-                r
-                for r in getattr(member, "roles", [])
-                if any(self.cog.service._match_faculty_role_in_list([r], fac) is not None for fac in FACULTY_ROLE_NAMES)
-                or any(self.cog.service._match_campus_role_in_list([r], camp) is not None for camp in CAMPUS_ROLE_NAMES)
-                or any(self.cog.service._match_study_level_role_in_list([r], lvl) is not None for lvl in STUDY_LEVEL_ROLE_NAMES)
-                or (self.cog.service._match_alumni_role_in_list([r]) is not None if hasattr(self.cog.service, "_match_alumni_role_in_list") else r.name.strip().lower() in ("tarumt alumni", "alumni"))
-            ]
-
-            me = getattr(guild, "me", None)
-            can_manage = (
-                getattr(me.guild_permissions, "manage_roles", False)
-                if me and hasattr(me, "guild_permissions")
-                else False
-            )
-            bot_top = getattr(me, "top_role", None)
-            bot_pos = getattr(bot_top, "position", 0) if bot_top else 0
-
-            for role in roles_to_remove:
-                if can_manage and getattr(role, "position", 0) < bot_pos:
-                    try:
-                        await member.remove_roles(
-                            role, reason=f"TARVeri: Unverified by {interaction.user}. Reason: {reason}"
-                        )
-                        roles_removed.append(f"{guild.name} ({role.name})")
-                    except discord.HTTPException as e:
-                        logger.warning(f"Could not remove role {role.name} from {member} in {guild.name}: {e}")
-
-        await self.cog.db.delete_verification(user_id)
-        self.cog.rate_limiter.reset(user_id)
-
-        await self.cog.db.log(
-            "WARNING",
-            "MEMBER_UNVERIFIED",
-            f"Admin {interaction.user} unverified user ID {user_id}. Reason: {reason}",
-            guild=interaction.guild,
-            user_id=user_id,
-        )
-
+        roles_removed = res.get("roles_removed", [])
         await interaction.followup.send(
             f"✅ **Successfully unverified user ID `{user_id}`**.\n"
             f"• Reason: *{reason}*\n"

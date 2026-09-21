@@ -82,3 +82,22 @@ Students transitioning between levels (e.g. Diploma $\to$ Degree):
 
 - **`/graduate [year] [programme]`**: Verified students claim their `TARUMT Alumni` role and gold card badge.
 - **Graduation Watchdog**: Scans daily for expired card dates and sends polite DM resolution prompts.
+
+---
+
+## 7. Tiered Trust & Cross-Server Role Synchronization
+
+TARVeri implements a tiered verification trust model across multiple Discord servers:
+
+| Verification Tier | Description | Opt-Out Servers (`require_email=0`) | Opt-In Servers (`require_email=1`) |
+| :--- | :--- | :--- | :--- |
+| **Tier 1: Fast Verified** | Student ID syntax verified without email OTP | **Auto-assigned roles** on join and resync | **Roles held in escrow** until email OTP verification is completed |
+| **Tier 2: Email-Attested** | Student ID + `@student.tarc.edu.my` OTP verified | **Auto-assigned roles immediately** | **Auto-assigned roles immediately** |
+
+### Self-Healing & Unverification Lifecycle:
+1. **Unverification (`/admin unverify`)**: Strips faculty, campus, study level, and alumni roles across **all mutual servers** the user shares with the bot, clears database persistence, and resets rate limiters.
+2. **Re-verification & Upgrading**: When a Tier 1 student completes email OTP verification in an Opt-In server, their profile is upgraded to Tier 2 and automatically assigns roles across all remaining mutual Opt-In servers.
+3. **Self-Healing Reconciliation**:
+   - Strips unauthorized roles from non-email-verified students in Opt-In servers.
+   - Cleans up stray verified roles from unverified users who were manually given roles or unlinked.
+   - Restores missing roles to verified students across all eligible servers.

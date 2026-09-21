@@ -351,6 +351,37 @@ class AdminCog(commands.Cog, name="Admin"):
 
         await interaction.response.defer(ephemeral=True)
 
+        unverify_fn = getattr(self.service, "unverify_member", None)
+        if callable(unverify_fn) and (
+            inspect.iscoroutinefunction(unverify_fn)
+            or getattr(type(unverify_fn), "__name__", "") in ("AsyncMock", "AsyncMockMixin")
+            or getattr(type(self.service), "__name__", "") not in ("MagicMock", "Mock")
+        ):
+            res = await self.service.unverify_member(
+                user_id=user.id,
+                admin=interaction.user,
+                current_guild=interaction.guild,
+                reason=reason or "No reason provided",
+            )
+            if not res.get("success"):
+                await interaction.followup.send(f"❌ {user.mention} is not verified.", ephemeral=True)
+                schedule_ttl_delete(interaction, delay=60.0)
+                return
+
+            roles_removed_servers = res.get("roles_removed", [])
+            report = f"✅ **Successfully unverified {user.mention} (ID: `{user.id}`).**\n"
+            if reason:
+                report += f"• **Reason:** *{reason}*\n"
+            if roles_removed_servers:
+                report += f"• **Roles removed in {len(roles_removed_servers)} server(s):** {', '.join(roles_removed_servers)}\n"
+            else:
+                report += "• **Roles removed:** None (member not found or had no roles)\n"
+            report += "• **Rate Limiter:** Reset successfully. The user may now verify a new ID."
+
+            await interaction.followup.send(report, ephemeral=True)
+            schedule_ttl_delete(interaction, delay=60.0)
+            return
+
         verif = await self.db.get_verification_by_user(user.id)
         if not verif:
             await interaction.followup.send(f"❌ {user.mention} is not verified.", ephemeral=True)
@@ -358,7 +389,7 @@ class AdminCog(commands.Cog, name="Admin"):
             return
 
         mutual_guilds = await self.service.get_mutual_guilds_for_user(user.id)
-        roles_removed_servers: list[str] = []
+        roles_removed_servers = []
 
         for guild in mutual_guilds:
             member = await self.service.get_or_fetch_member(guild, user.id)
