@@ -152,11 +152,12 @@ class VerificationService:
         target_has_qualifier = bool(ROLE_QUALIFIER_PATTERN.search(target_name))
         aliases = FACULTY_ALIASES.get(target_name, [target_name])
 
-        def _is_safe_role(r_name: str) -> bool:
-            if not target_has_qualifier and ROLE_QUALIFIER_PATTERN.search(r_name):
+        def _is_safe_role(r_name: Any) -> bool:
+            r_str = str(r_name or "")
+            if not target_has_qualifier and ROLE_QUALIFIER_PATTERN.search(r_str):
                 return False
             # Cross-domain guard: Never match study level, campus, or alumni roles as faculty roles
-            r_upper = r_name.strip().upper()
+            r_upper = r_str.strip().upper()
             if target_name in FACULTY_ROLE_NAMES:
                 if any(r_upper == lvl.upper() for lvl in STUDY_LEVEL_ROLE_NAMES):
                     return False
@@ -500,10 +501,11 @@ class VerificationService:
             if getattr(r, "name", None) == target_name:
                 return r
 
-        def _is_safe_campus_role(r_name: str) -> bool:
-            if ROLE_QUALIFIER_PATTERN.search(r_name):
+        def _is_safe_campus_role(r_name: Any) -> bool:
+            r_str = str(r_name or "")
+            if ROLE_QUALIFIER_PATTERN.search(r_str):
                 return False
-            r_upper = r_name.strip().upper()
+            r_upper = r_str.strip().upper()
             if target_name in CAMPUS_ROLE_NAMES:
                 if any(r_upper == fac.upper() for fac in FACULTY_ROLE_NAMES):
                     return False
@@ -569,10 +571,11 @@ class VerificationService:
             if getattr(r, "name", None) == target_name:
                 return r
 
-        def _is_safe_level_role(r_name: str) -> bool:
-            if ROLE_QUALIFIER_PATTERN.search(r_name):
+        def _is_safe_level_role(r_name: Any) -> bool:
+            r_str = str(r_name or "")
+            if ROLE_QUALIFIER_PATTERN.search(r_str):
                 return False
-            r_upper = r_name.strip().upper()
+            r_upper = r_str.strip().upper()
             if target_name in STUDY_LEVEL_ROLE_NAMES:
                 if any(r_upper == fac.upper() for fac in FACULTY_ROLE_NAMES):
                     return False
@@ -632,11 +635,27 @@ class VerificationService:
         campus_role_name: str | None = None,
         level_role_name: str | None = None,
         is_email_verified: bool = False,
+        student_id_hash: str | None = None,
+        email_hash: str | None = None,
     ) -> None:
         """Process role assignment in a single guild (faculty role + campus role + study level role)."""
         member = await self.get_or_fetch_member(guild, user_id)
         if member is None:
             return
+
+        # Check if user, student_id_hash, or email_hash is blacklisted in this guild
+        if self.db and hasattr(guild, "id"):
+            try:
+                is_bl, _ = await self.db.is_blacklisted(
+                    guild.id,
+                    user_id=user_id,
+                    student_id_hash=student_id_hash,
+                    email_hash=email_hash,
+                )
+                if is_bl:
+                    return
+            except Exception as exc:
+                logger.debug("Failed checking blacklist for %s in %s: %s", user_id, guild.id, exc)
 
         # Check if the guild mandates institutional email verification (Opt-In)
         if self.db and hasattr(guild, "id"):
@@ -780,10 +799,12 @@ class VerificationService:
         campus_role_name: str | None = None,
         level_role_name: str | None = None,
         is_email_verified: bool = False,
+        student_id_hash: str | None = None,
+        email_hash: str | None = None,
     ) -> RoleSyncResult:
         """
         Ensures the given user holds `role_name` (and optional campus & level roles) in all specified guilds concurrently.
-        Respects per-guild institutional email verification policies.
+        Respects per-guild institutional email verification and blacklist policies.
         """
         result = RoleSyncResult()
         if not guilds:
@@ -798,6 +819,8 @@ class VerificationService:
                 campus_role_name=campus_role_name,
                 level_role_name=level_role_name,
                 is_email_verified=is_email_verified,
+                student_id_hash=student_id_hash,
+                email_hash=email_hash,
             )
             for g in guilds
         ]
@@ -1224,6 +1247,25 @@ class VerificationService:
                     except Exception as e:
                         logger.warning(f"Could not encrypt email for {user}: {e}")
 
+            # Check if user, student ID, or email is blacklisted in current guild context
+            if guild_ctx and hasattr(guild_ctx, "id"):
+                is_bl, bl_reason = await self.db.is_blacklisted(
+                    guild_ctx.id,
+                    user_id=user.id,
+                    student_id_hash=id_hash,
+                    email_hash=email_hash,
+                )
+                if is_bl:
+                    await self.db.log(
+                        "WARNING",
+                        "BLACKLIST_ATTEMPT_BLOCKED",
+                        f"{user} (ID: {user.id}) verification blocked due to guild blacklist in '{guild_ctx.name}'. Reason: {bl_reason}",
+                        user_id=user.id,
+                        guild=guild_ctx,
+                    )
+                    reason_suffix = f" Reason: {bl_reason}" if bl_reason else ""
+                    return f"⛔ You are blacklisted from verifying in **{guild_ctx.name}**.{reason_suffix}"
+
             # Check if user is already verified
             existing_for_user = await self.db.get_verification_by_user(user.id)
             if existing_for_user:
@@ -1264,6 +1306,8 @@ class VerificationService:
                     campus_role_name=campus_role_name,
                     level_role_name=level_role_name,
                     is_email_verified=is_user_email_verified,
+                    student_id_hash=id_hash,
+                    email_hash=final_email_hash,
                 )
                 try:
                     await self.db.update_verification_details(
@@ -1307,6 +1351,8 @@ class VerificationService:
                 campus_role_name=campus_role_name,
                 level_role_name=level_role_name,
                 is_email_verified=is_user_email_verified,
+                student_id_hash=id_hash,
+                email_hash=email_hash,
             )
 
             # Persist if role was granted or user already held the role in at least one server
@@ -1449,6 +1495,30 @@ class VerificationService:
             # Check eligibility if guild mandates email verification (Opt-In)
             details = await self.db.get_verification_details(discord_user_id)
             is_email_verified = bool(details.get("student_email_hash")) if details else False
+
+            # Check if member is blacklisted in this guild
+            is_bl, bl_reason = await self.db.is_blacklisted(
+                guild.id,
+                user_id=discord_user_id,
+                student_id_hash=details.get("student_id_hash") if details else None,
+                email_hash=details.get("student_email_hash") if details else None,
+            )
+            if is_bl:
+                stripped_roles = await self.strip_all_roles_in_guild(
+                    guild,
+                    member,
+                    reason=f"TARVeri Self-Healing: Stripped verified roles from blacklisted member ({bl_reason})",
+                )
+                if stripped_roles:
+                    summary["unauthorized_cleaned"] += len(stripped_roles)
+                    await self.db.log(
+                        "WARNING",
+                        "BLACKLIST_ROLE_STRIPPED",
+                        f"Self-healing: Stripped {len(stripped_roles)} role(s) from blacklisted member {member} (ID: {discord_user_id}) in '{guild.name}'. Reason: {bl_reason}",
+                        guild=guild,
+                        user_id=discord_user_id,
+                    )
+                continue
 
             if guild_email_required and not is_email_verified:
                 # Member is only Fast Verified (Tier 1), but server mandates institutional email (Tier 2).
@@ -2282,3 +2352,178 @@ class VerificationService:
                     )
 
         return warnings
+
+    async def strip_all_roles_in_guild(
+        self,
+        guild: discord.Guild,
+        member: discord.Member,
+        reason: str = "TARVeri: Blacklist role revocation",
+    ) -> list[str]:
+        """
+        Strips all faculty, campus, study level, alumni, and guest roles from a member in a specific guild.
+        Returns the list of role names that were removed.
+        """
+        if not guild or not member:
+            return []
+
+        roles_to_remove = [
+            r
+            for r in getattr(member, "roles", [])
+            if any(self._match_faculty_role_in_list([r], fac) is not None for fac in FACULTY_ROLE_NAMES)
+            or any(self._match_campus_role_in_list([r], camp) is not None for camp in CAMPUS_ROLE_NAMES)
+            or any(self._match_study_level_role_in_list([r], lvl) is not None for lvl in STUDY_LEVEL_ROLE_NAMES)
+            or self._match_alumni_role_in_list([r]) is not None
+            or bool(GUEST_ROLE_PATTERN.search(getattr(r, "name", "")))
+        ]
+
+        me = getattr(guild, "me", None)
+        can_manage = getattr(getattr(me, "guild_permissions", None), "manage_roles", False)
+        bot_top = getattr(me, "top_role", None)
+        bot_pos = getattr(bot_top, "position", 0) if bot_top else 0
+
+        manageable_roles = [
+            r for r in roles_to_remove
+            if can_manage and isinstance(bot_pos, int) and isinstance(getattr(r, "position", 0), int) and getattr(r, "position", 0) < bot_pos
+        ]
+
+        removed_names: list[str] = []
+        if manageable_roles:
+            try:
+                await member.remove_roles(*manageable_roles, reason=reason)
+                removed_names = [getattr(r, "name", "Role") for r in manageable_roles]
+            except discord.HTTPException as exc:
+                logger.warning(f"Failed to strip roles from {member} in {guild.name}: {exc}", exc_info=True)
+
+        return removed_names
+
+    async def blacklist_target(
+        self,
+        guild: discord.Guild,
+        target_type: str,
+        raw_value: str,
+        reason: str | None = None,
+        admin: discord.User | discord.Member | None = None,
+    ) -> tuple[bool, str]:
+        """
+        Blacklists a target (USER, STUDENT_ID, or EMAIL) in the specified guild.
+        Atomically strips any active verified or guest roles from the affected member in that guild.
+        """
+        clean_type = target_type.strip().upper()
+        if clean_type not in ("USER", "STUDENT_ID", "EMAIL"):
+            return False, f"❌ Invalid target type `{target_type}`. Must be `USER`, `STUDENT_ID`, or `EMAIL`."
+
+        admin_id = getattr(admin, "id", 0) if admin else 0
+        clean_reason = reason.strip() if reason and reason.strip() else "No reason specified"
+        target_value = ""
+        display_mask = ""
+        target_member: discord.Member | None = None
+
+        if clean_type == "USER":
+            digits_only = re.sub(r"[^\d]", "", raw_value.strip())
+            if not digits_only:
+                return False, "❌ Invalid Discord User or User ID provided."
+            user_id = int(digits_only)
+            target_value = str(user_id)
+            display_mask = f"User <@{user_id}> ({user_id})"
+            target_member = await self.get_or_fetch_member(guild, user_id)
+
+        elif clean_type == "STUDENT_ID":
+            clean_id = raw_value.strip().upper()
+            if not clean_id:
+                return False, "❌ Invalid student ID provided."
+            id_hash = hash_student_id(clean_id, self.secret)
+            target_value = id_hash
+            display_mask = mask_student_id(clean_id)
+            verif_row = await self.db.get_verification_by_id_hash(id_hash)
+            if verif_row:
+                target_member = await self.get_or_fetch_member(guild, verif_row[0])
+
+        elif clean_type == "EMAIL":
+            clean_email = raw_value.strip().lower()
+            if not clean_email or "@" not in clean_email:
+                return False, "❌ Invalid email address provided."
+            email_hash = hash_email(clean_email, self.secret)
+            target_value = email_hash
+            display_mask = mask_email(clean_email)
+            verif_row = await self.db.get_verification_by_email_hash(email_hash)
+            if verif_row:
+                target_member = await self.get_or_fetch_member(guild, verif_row[0])
+
+        # 1. Add to Database
+        await self.db.add_to_blacklist(
+            guild_id=guild.id,
+            target_type=clean_type,
+            target_value=target_value,
+            display_mask=display_mask,
+            reason=clean_reason,
+            blacklisted_by=admin_id,
+        )
+
+        # 2. If target member is in the guild, strip roles immediately
+        stripped_roles: list[str] = []
+        if target_member:
+            stripped_roles = await self.strip_all_roles_in_guild(
+                guild,
+                target_member,
+                reason=f"TARVeri: Blacklisted by {admin or 'Admin'} ({clean_reason})",
+            )
+
+        # 3. Log audit event
+        admin_label = f"Admin {admin}" if admin else "Admin"
+        await self.db.log(
+            "WARNING",
+            "BLACKLIST_ADDED",
+            f"{admin_label} (ID: {admin_id}) blacklisted [{clean_type}] {display_mask} in '{guild.name}'. Reason: '{clean_reason}'. Stripped roles: {stripped_roles or 'None'}",
+            guild=guild,
+            user_id=admin_id,
+        )
+
+        strip_msg = f" Stripped {len(stripped_roles)} role(s) from {target_member.mention}." if stripped_roles and target_member else ""
+        return True, f"✅ Successfully added [{clean_type}] `{display_mask}` to **{guild.name}** blacklist.{strip_msg}"
+
+    async def unblacklist_target(
+        self,
+        guild: discord.Guild,
+        target_type: str,
+        raw_value: str,
+        admin: discord.User | discord.Member | None = None,
+    ) -> tuple[bool, str]:
+        """
+        Removes a target (USER, STUDENT_ID, or EMAIL) from a guild's blacklist.
+        """
+        clean_type = target_type.strip().upper()
+        if clean_type not in ("USER", "STUDENT_ID", "EMAIL"):
+            return False, f"❌ Invalid target type `{target_type}`. Must be `USER`, `STUDENT_ID`, or `EMAIL`."
+
+        admin_id = getattr(admin, "id", 0) if admin else 0
+        target_value = ""
+        if clean_type == "USER":
+            digits_only = re.sub(r"[^\d]", "", raw_value.strip())
+            if not digits_only:
+                return False, "❌ Invalid Discord User ID provided."
+            target_value = digits_only
+        elif clean_type == "STUDENT_ID":
+            clean_id = raw_value.strip().upper()
+            target_value = hash_student_id(clean_id, self.secret)
+        elif clean_type == "EMAIL":
+            clean_email = raw_value.strip().lower()
+            target_value = hash_email(clean_email, self.secret)
+
+        removed = await self.db.remove_from_blacklist(guild.id, clean_type, target_value)
+        # Fallback if raw_value was passed as hash directly
+        if not removed and target_value != raw_value.strip():
+            removed = await self.db.remove_from_blacklist(guild.id, clean_type, raw_value.strip())
+
+        if not removed:
+            return False, f"⚠️ No matching [{clean_type}] blacklist entry found in **{guild.name}**."
+
+        admin_label = f"Admin {admin}" if admin else "Admin"
+        await self.db.log(
+            "INFO",
+            "BLACKLIST_REMOVED",
+            f"{admin_label} (ID: {admin_id}) removed [{clean_type}] target from '{guild.name}' blacklist.",
+            guild=guild,
+            user_id=admin_id,
+        )
+
+        return True, f"✅ Successfully removed [{clean_type}] target from **{guild.name}** blacklist."

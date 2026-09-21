@@ -361,6 +361,18 @@ class Database:
                 notes TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS guild_blacklists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                target_type TEXT NOT NULL,
+                target_value TEXT NOT NULL,
+                display_mask TEXT,
+                reason TEXT,
+                blacklisted_by INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(guild_id, target_type, target_value)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_log(event_type);
             CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
             CREATE INDEX IF NOT EXISTS idx_audit_user_id ON audit_log(user_id);
@@ -372,6 +384,8 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_guest_tickets_applicant ON guest_tickets(applicant_id);
             CREATE INDEX IF NOT EXISTS idx_bot_created_roles_guild ON bot_created_roles(guild_id);
             CREATE INDEX IF NOT EXISTS idx_transitions_user ON verification_transitions(discord_user_id);
+            CREATE INDEX IF NOT EXISTS idx_blacklist_lookup ON guild_blacklists(guild_id, target_type, target_value);
+            CREATE INDEX IF NOT EXISTS idx_blacklist_guild ON guild_blacklists(guild_id);
             """
         )
 
@@ -1952,5 +1966,182 @@ class Database:
             }
             for r in rows
         ]
+
+    # =========================================================================
+    # 🚫 Guild Blacklist Management
+    # =========================================================================
+
+    async def add_to_blacklist(
+        self,
+        guild_id: int,
+        target_type: str,
+        target_value: str,
+        display_mask: str | None = None,
+        reason: str | None = None,
+        blacklisted_by: int = 0,
+    ) -> bool:
+        """Adds or updates a target (USER, STUDENT_ID, EMAIL) on a guild's blacklist."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+        ts = now_formatted()
+        clean_type = target_type.strip().upper()
+        clean_value = str(target_value).strip()
+        async with self.transaction() as conn:
+            await conn.execute(
+                """INSERT INTO guild_blacklists (guild_id, target_type, target_value, display_mask, reason, blacklisted_by, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(guild_id, target_type, target_value) DO UPDATE SET
+                       display_mask = excluded.display_mask,
+                       reason = excluded.reason,
+                       blacklisted_by = excluded.blacklisted_by,
+                       created_at = excluded.created_at""",
+                (guild_id, clean_type, clean_value, display_mask or clean_value, reason or "No reason specified", blacklisted_by, ts),
+            )
+        return True
+
+    async def remove_from_blacklist(
+        self,
+        guild_id: int,
+        target_type: str,
+        target_value: str,
+    ) -> bool:
+        """Removes a target from a guild's blacklist."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+        clean_type = target_type.strip().upper()
+        clean_value = str(target_value).strip()
+        async with self.transaction() as conn:
+            cursor = await conn.execute(
+                """DELETE FROM guild_blacklists
+                   WHERE guild_id = ? AND target_type = ? AND target_value = ?""",
+                (guild_id, clean_type, clean_value),
+            )
+            return cursor.rowcount > 0
+
+    async def is_blacklisted(
+        self,
+        guild_id: int,
+        user_id: int | None = None,
+        student_id_hash: str | None = None,
+        email_hash: str | None = None,
+    ) -> tuple[bool, str | None]:
+        """
+        Checks if a user, student ID hash, or email hash is blacklisted in the specified guild.
+        Returns (True, reason) if blacklisted, else (False, None).
+        """
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+
+        try:
+            clean_guild_id = int(guild_id)
+        except (ValueError, TypeError):
+            return False, None
+
+        conditions = []
+        params: list[Any] = [clean_guild_id]
+
+        if user_id is not None:
+            try:
+                clean_uid = int(user_id)
+                conditions.append("(target_type = 'USER' AND target_value = ?)")
+                params.append(str(clean_uid))
+            except (ValueError, TypeError):
+                pass
+
+        if student_id_hash is not None and isinstance(student_id_hash, str) and student_id_hash.strip():
+            conditions.append("(target_type = 'STUDENT_ID' AND target_value = ?)")
+            params.append(student_id_hash.strip())
+
+        if email_hash is not None and isinstance(email_hash, str) and email_hash.strip():
+            conditions.append("(target_type = 'EMAIL' AND target_value = ?)")
+            params.append(email_hash.strip())
+
+        if not conditions:
+            return False, None
+
+        query = f"""SELECT reason, target_type FROM guild_blacklists
+                    WHERE guild_id = ? AND ({' OR '.join(conditions)})
+                    LIMIT 1"""
+
+        cursor = await self._conn.execute(query, tuple(params))
+        row = await cursor.fetchone()
+        if row:
+            return True, row[0]
+        return False, None
+
+    async def get_guild_blacklist(
+        self,
+        guild_id: int,
+        target_type: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Retrieves paginated blacklist records for a guild."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+
+        if target_type:
+            cursor = await self._conn.execute(
+                """SELECT id, guild_id, target_type, target_value, display_mask, reason, blacklisted_by, created_at
+                   FROM guild_blacklists
+                   WHERE guild_id = ? AND target_type = ?
+                   ORDER BY id DESC LIMIT ? OFFSET ?""",
+                (guild_id, target_type.strip().upper(), limit, offset),
+            )
+        else:
+            cursor = await self._conn.execute(
+                """SELECT id, guild_id, target_type, target_value, display_mask, reason, blacklisted_by, created_at
+                   FROM guild_blacklists
+                   WHERE guild_id = ?
+                   ORDER BY id DESC LIMIT ? OFFSET ?""",
+                (guild_id, limit, offset),
+            )
+        rows = await cursor.fetchall()
+        return [
+            {
+                "id": r[0],
+                "guild_id": r[1],
+                "target_type": r[2],
+                "target_value": r[3],
+                "display_mask": r[4],
+                "reason": r[5],
+                "blacklisted_by": r[6],
+                "created_at": r[7],
+            }
+            for r in rows
+        ]
+
+    async def count_guild_blacklist(
+        self,
+        guild_id: int,
+        target_type: str | None = None,
+    ) -> int:
+        """Returns the total number of blacklisted entries for a guild."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+
+        if target_type:
+            cursor = await self._conn.execute(
+                """SELECT COUNT(*) FROM guild_blacklists WHERE guild_id = ? AND target_type = ?""",
+                (guild_id, target_type.strip().upper()),
+            )
+        else:
+            cursor = await self._conn.execute(
+                """SELECT COUNT(*) FROM guild_blacklists WHERE guild_id = ?""",
+                (guild_id,),
+            )
+        row = await cursor.fetchone()
+        return row[0] if row else 0
+
+    async def clear_guild_blacklist(self, guild_id: int) -> int:
+        """Clears all blacklist entries for a guild."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+        async with self.transaction() as conn:
+            cursor = await conn.execute(
+                "DELETE FROM guild_blacklists WHERE guild_id = ?",
+                (guild_id,),
+            )
+            return cursor.rowcount
 
 

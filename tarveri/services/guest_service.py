@@ -70,6 +70,13 @@ class GuestService:
         Returns (success, code_or_error_message).
         """
         async with self._lock:
+            is_bl, bl_reason = await self.db.is_blacklisted(guild_id, user_id=referrer_user.id)
+            if is_bl:
+                return (
+                    False,
+                    f"⛔ You are blacklisted from generating referral codes in this server.{f' Reason: {bl_reason}' if bl_reason else ''}",
+                )
+
             active_count = await self.db.count_active_referrals_for_user(guild_id, referrer_user.id)
             if active_count >= max_active:
                 return (
@@ -619,6 +626,22 @@ class GuestService:
         and posts the review embed with action buttons.
         """
         async with self._lock:
+            # 0. Check blacklist for applicant
+            is_bl, bl_reason = await self.db.is_blacklisted(guild.id, user_id=applicant.id)
+            if is_bl:
+                await self.db.log(
+                    "WARNING",
+                    "BLACKLIST_ATTEMPT_BLOCKED",
+                    f"Blacklisted user {applicant} (ID: {applicant.id}) attempted to open a guest ticket in '{guild.name}'. Reason: {bl_reason}",
+                    user_id=applicant.id,
+                    guild=guild,
+                )
+                return (
+                    False,
+                    f"⛔ You are blacklisted from requesting guest access in this server.{f' Reason: {bl_reason}' if bl_reason else ''}",
+                    None,
+                )
+
             # 1. Rate limiting on guest/referral attempts
             if self.rate_limiter:
                 if self.rate_limiter.is_rate_limited(applicant.id):
@@ -678,6 +701,15 @@ class GuestService:
                     )
 
                 referrer_id = record["referrer_discord_id"]
+                if referrer_id:
+                    is_ref_bl, _ = await self.db.is_blacklisted(guild.id, user_id=referrer_id)
+                    if is_ref_bl:
+                        return (
+                            False,
+                            "❌ This referral code is invalid because the referring user is blacklisted in this server.",
+                            None,
+                        )
+
                 await self.db.update_referral_code_status(
                     referral_code, guild.id, "PENDING_APPROVAL", used_by_discord_id=applicant.id
                 )

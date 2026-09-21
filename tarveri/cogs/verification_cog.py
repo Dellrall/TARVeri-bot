@@ -1741,8 +1741,22 @@ class VerificationCog(commands.Cog, name="Verification"):
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member) -> None:
         """Automatically assigns faculty, campus, study level, and alumni roles if member is already verified, else prompts and tags."""
+        # 0. Blacklist guard: ignore blacklisted users
+        is_bl, _ = await self.db.is_blacklisted(member.guild.id, user_id=member.id)
+        if is_bl:
+            return
+
         details = await self.db.get_verification_details(member.id)
         if details:
+            is_bl_hashes, _ = await self.db.is_blacklisted(
+                member.guild.id,
+                user_id=member.id,
+                student_id_hash=details.get("student_id_hash"),
+                email_hash=details.get("student_email_hash"),
+            )
+            if is_bl_hashes:
+                return
+
             is_email_verified = bool(details.get("student_email_hash"))
             guild_email_required = await self.db.is_guild_email_verification_enabled(member.guild.id)
 
