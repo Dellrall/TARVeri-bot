@@ -55,9 +55,22 @@ TARVeri uses a sliding century window algorithm (`< 70 -> 20xx`, `>= 70 -> 19xx`
 
 When enabled (`TARVERI_EMAIL_VERIFICATION_ENABLED=true`):
 1. User enters Student ID and official institutional email (`@student.tarc.edu.my` or `@tarc.edu.my`).
-2. **Pre-Flight Validation**: Checks rate limits, duplicate blind hashes, and format before contacting SMTP servers.
+2. **Pre-Flight Validation & Bounce Gating**: Checks rate limits, duplicate blind hashes, and queries the `bounced_emails` registry to prevent contacting invalid or deactivated university mailboxes.
 3. **6-Digit Secure OTP**: Dispatched via `aiosmtplib` with dynamic Discord countdown timers.
 4. **Encryption at Rest**: Student email addresses are encrypted at rest with Fernet (AES-128-CBC with HMAC-SHA256 authenticated encryption) in SQLite, with an HMAC-SHA256 blind index preventing duplicate registrations.
+5. **SMTP NDR Bounce Detection**: If the institutional mail server rejects the delivery (550 / 554 / mailbox unavailable), the bounce is recorded in SQLite and the user is provided with actionable guidance to check their email spelling or mailbox activation.
+
+---
+
+## 4. Programme Code Storage & Multi-Character Role Recovery
+
+TARVeri parses and stores the 3-letter programme prefix (`programme_code`, e.g. `WMR` from `24WMR12331`):
+- `W` = Campus Branch (`KL Main Campus`)
+- `M` = Faculty (`FOCS`)
+- `R` = Study Level (`Degree`)
+- `WMR` = Complete Programme Identity
+
+This ensures that even during full-server reconciliations or member rejoins, all 3 constituent roles (`Faculty`, `Campus`, and `Study Level`) are 100% reconstructed via multi-tier resolvers (`resolve_faculty_role()`, `resolve_campus_role()`, and `resolve_study_level_role()`) without ambiguous fallback.
 
 ---
 

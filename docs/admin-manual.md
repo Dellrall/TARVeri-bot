@@ -84,7 +84,22 @@ TARVeri includes a privacy-preserving, per-server blacklist system allowing serv
 
 ---
 
-## 7. Complete Slash Command Matrix
+## 7. High-Impact Mass Action Safety Guard & Role Restoration
+
+### 2-Step Interactive Approval for Mass Revocations:
+Any automated reconciliation or bulk administrative action affecting **more than 5 members simultaneously** (configurable via `TARVERI_MASS_REVOCATION_THRESHOLD`) is automatically intercepted to prevent rogue mass role stripping:
+- The pending action is recorded in SQLite `pending_mass_actions`.
+- An interactive approval embed is rendered with **`Approve`** and **`Reject`** buttons.
+- The action remains in `PENDING` status until an administrator explicitly confirms execution.
+
+### Granular Role Restoration (`/admin restore_roles`):
+If a member previously verified (or joined during an outage) is missing their faculty, branch campus, study level, or alumni roles:
+- `/admin restore_roles user:@Member`: Restores all resolved roles for a single member immediately with granular embed reporting.
+- `/admin restore_roles`: Scans the entire server and restores all missing roles for all verified members who share the server.
+
+---
+
+## 8. Complete Slash Command Matrix
 
 | Slash Command | Permissions | Description |
 | :--- | :---: | :--- |
@@ -92,6 +107,7 @@ TARVeri includes a privacy-preserving, per-server blacklist system allowing serv
 | `/admin stats` | Administrator | View student metrics and faculty distribution. |
 | `/admin email_stats` | Administrator | View email verification and opt-in rates. |
 | `/admin email_verification` | Administrator | Toggle mandatory student email OTP verification. |
+| `/admin restore_roles` | Administrator | Restore missing faculty, campus, study level & alumni roles for a user or entire server. |
 | `/admin blacklist user` | Administrator | Blacklist a Discord user from verifying in this server. |
 | `/admin blacklist student_id` | Administrator | Blacklist a student ID hash from verifying in this server. |
 | `/admin blacklist email` | Administrator | Blacklist an institutional email hash from verifying in this server. |
@@ -113,3 +129,4 @@ TARVeri includes a privacy-preserving, per-server blacklist system allowing serv
 | `/admin resync` | Administrator | Force verification role reconciliation. |
 | `/admin updates` | Administrator | Check for upstream Git releases. |
 | `/admin sync_commands` | Administrator | Force slash command registration with Discord. |
+
