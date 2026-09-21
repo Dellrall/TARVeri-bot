@@ -11,7 +11,7 @@ import signal
 import discord
 from discord.ext import commands
 
-from tarveri.cogs.admin_cog import AdminCog
+from tarveri.cogs.admin_cog import AdminCog, MassRevocationApprovalView
 from tarveri.cogs.card_cog import CardCog
 from tarveri.cogs.guest_cog import (
     GuestCog,
@@ -187,6 +187,7 @@ class TARVeriBot(commands.Bot):
         self.add_view(VerificationGatewayView(self.service, self.guest_service))
         self.add_view(GuestReviewThreadView(self.guest_service))
         self.add_view(StudentLifecycleResolutionView(self.service, self.db))
+        self.add_view(MassRevocationApprovalView(self.service))
 
         # Launch non-blocking background command sync so bot connects to gateway immediately
         self._cmd_sync_task = asyncio.create_task(

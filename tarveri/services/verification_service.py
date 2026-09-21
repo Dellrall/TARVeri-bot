@@ -1513,6 +1513,7 @@ class VerificationService:
             guild_email_enforced = getattr(self.settings, "enable_email_role_enforcement", False)
 
         verified_user_ids: set[int] = set()
+        email_strip_candidates: list[tuple[discord.Member, list[discord.Role]]] = []
 
         for discord_user_id, _, faculty_code, _ in all_verifications:
             verified_user_ids.add(discord_user_id)
@@ -1554,7 +1555,7 @@ class VerificationService:
                 continue
 
             if guild_email_required and not is_email_verified and guild_email_enforced:
-                # When retroactive enforcement is explicitly enabled by admin, strip existing verified roles in this server.
+                # When retroactive enforcement is explicitly enabled by admin, collect candidates for revocation
                 roles_to_strip = [
                     r
                     for r in member_roles
@@ -1563,26 +1564,12 @@ class VerificationService:
                     or any(self._match_study_level_role_in_list([r], lvl) is not None for lvl in STUDY_LEVEL_ROLE_NAMES)
                     or self._match_alumni_role_in_list([r]) is not None
                 ]
-                strip_manageable = [r for r in roles_to_strip if getattr(r, "position", 0) < bot_pos]
+                strip_manageable = [
+                    r for r in roles_to_strip
+                    if not (isinstance(bot_pos, int) and isinstance(getattr(r, "position", 0), int) and getattr(r, "position", 0) >= bot_pos)
+                ]
                 if strip_manageable and can_manage:
-                    try:
-                        await member.remove_roles(
-                            *strip_manageable,
-                            reason="TARVeri Self-Healing: Stripped verified roles from non-email-verified member in email-enforced server",
-                        )
-                        summary["unauthorized_cleaned"] += len(strip_manageable)
-                        await self.db.log(
-                            "INFO",
-                            "ROLE_POLICY_ENFORCED",
-                            f"Self-healing: Removed {len(strip_manageable)} role(s) from {member} (ID: {discord_user_id}) - requires institutional email verification in '{guild.name}'",
-                            guild=guild,
-                            user_id=discord_user_id,
-                        )
-                    except discord.HTTPException as exc:
-                        logger.warning(
-                            f"Could not strip unauthorized roles from {member} in {guild.name}: {exc}",
-                            exc_info=True,
-                        )
+                    email_strip_candidates.append((member, strip_manageable))
                 continue
 
             roles_to_add: list[discord.Role] = []
@@ -1709,7 +1696,45 @@ class VerificationService:
                         f"Failed to restore roles for {member} in '{guild.name}': {e}"
                     )
 
-        # 4. Clean up unverified members who erroneously hold verified roles
+        # Process email policy candidates with Circuit Breaker (Threshold >= 5)
+        threshold = getattr(self.settings, "mass_revocation_threshold", 5) if self.settings else 5
+        if len(email_strip_candidates) >= threshold:
+            action_id = await self.stage_mass_revocation(
+                guild=guild,
+                action_type="EMAIL_POLICY_REVOCATION",
+                candidates=email_strip_candidates,
+                reason="Mandatory institutional email verification policy enforcement",
+            )
+            summary["mass_revocation_suspended"] = len(email_strip_candidates)
+            await self.db.log(
+                "WARNING",
+                "MASS_REVOCATION_INTERCEPTED",
+                f"Mass role revocation intercepted for {len(email_strip_candidates)} member(s) in '{guild.name}'. Suspended pending admin approval (Action ID: {action_id}).",
+                guild=guild,
+            )
+        elif email_strip_candidates:
+            for cand_member, cand_roles in email_strip_candidates:
+                try:
+                    await cand_member.remove_roles(
+                        *cand_roles,
+                        reason="TARVeri Self-Healing: Stripped verified roles from non-email-verified member in email-enforced server",
+                    )
+                    summary["unauthorized_cleaned"] += len(cand_roles)
+                    await self.db.log(
+                        "INFO",
+                        "ROLE_POLICY_ENFORCED",
+                        f"Self-healing: Removed {len(cand_roles)} role(s) from {cand_member} (ID: {cand_member.id}) - requires institutional email verification in '{guild.name}'",
+                        guild=guild,
+                        user_id=cand_member.id,
+                    )
+                except discord.HTTPException as exc:
+                    logger.warning(
+                        f"Could not strip unauthorized roles from {cand_member} in {guild.name}: {exc}",
+                        exc_info=True,
+                    )
+
+        # 4. Clean up unverified members who erroneously hold verified roles (with Circuit Breaker)
+        unverified_stray_candidates: list[tuple[discord.Member, list[discord.Role]]] = []
         guild_members = getattr(guild, "members", [])
         if isinstance(guild_members, (list, tuple)):
             for member in guild_members:
@@ -1722,26 +1747,47 @@ class VerificationService:
                         or any(self._match_study_level_role_in_list([r], lvl) is not None for lvl in STUDY_LEVEL_ROLE_NAMES)
                         or self._match_alumni_role_in_list([r]) is not None
                     ]
-                    stray_manageable = [r for r in stray_roles if getattr(r, "position", 0) < bot_pos]
+                    stray_manageable = [
+                        r for r in stray_roles
+                        if not (isinstance(bot_pos, int) and isinstance(getattr(r, "position", 0), int) and getattr(r, "position", 0) >= bot_pos)
+                    ]
                     if stray_manageable and can_manage:
-                        try:
-                            await member.remove_roles(
-                                *stray_manageable,
-                                reason="TARVeri Self-Healing: Removed verified roles from unverified member",
-                            )
-                            summary["unverified_cleaned"] += len(stray_manageable)
-                            await self.db.log(
-                                "INFO",
-                                "UNVERIFIED_ROLES_CLEANED",
-                                f"Self-healing: Removed {len(stray_manageable)} stray verified role(s) from unverified member {member} (ID: {member.id}) in '{guild.name}'",
-                                guild=guild,
-                                user_id=member.id,
-                            )
-                        except discord.HTTPException as exc:
-                            logger.warning(
-                                f"Could not remove stray verified roles from unverified member {member} in {guild.name}: {exc}",
-                                exc_info=True,
-                            )
+                        unverified_stray_candidates.append((member, stray_manageable))
+
+        if len(unverified_stray_candidates) >= threshold:
+            action_id = await self.stage_mass_revocation(
+                guild=guild,
+                action_type="STRAY_UNVERIFIED_CLEANUP",
+                candidates=unverified_stray_candidates,
+                reason="Unverified members holding student verification roles",
+            )
+            summary["mass_unverified_suspended"] = len(unverified_stray_candidates)
+            await self.db.log(
+                "WARNING",
+                "MASS_REVOCATION_INTERCEPTED",
+                f"Mass stray role cleanup intercepted for {len(unverified_stray_candidates)} unverified member(s) in '{guild.name}'. Suspended pending admin approval (Action ID: {action_id}).",
+                guild=guild,
+            )
+        elif unverified_stray_candidates:
+            for member, stray_manageable in unverified_stray_candidates:
+                try:
+                    await member.remove_roles(
+                        *stray_manageable,
+                        reason="TARVeri Self-Healing: Removed verified roles from unverified member",
+                    )
+                    summary["unverified_cleaned"] += len(stray_manageable)
+                    await self.db.log(
+                        "INFO",
+                        "UNVERIFIED_ROLES_CLEANED",
+                        f"Self-healing: Removed {len(stray_manageable)} stray verified role(s) from unverified member {member} (ID: {member.id}) in '{guild.name}'",
+                        guild=guild,
+                        user_id=member.id,
+                    )
+                except discord.HTTPException as exc:
+                    logger.warning(
+                        f"Could not remove stray verified roles from unverified member {member} in {guild.name}: {exc}",
+                        exc_info=True,
+                    )
 
         if summary["restored"] > 0 or summary["unauthorized_cleaned"] > 0 or summary["unverified_cleaned"] > 0:
             logger.info(
@@ -2666,3 +2712,164 @@ class VerificationService:
         except Exception as exc:
             logger.warning(f"Failed to send admin security alert to #tarveri-log in '{guild.name}': {exc}")
         return False
+
+    async def stage_mass_revocation(
+        self,
+        guild: discord.Guild,
+        action_type: str,
+        candidates: list[tuple[discord.Member, list[discord.Role]]],
+        reason: str,
+    ) -> str:
+        """
+        Stages a pending mass revocation in SQLite and dispatches an interactive approval embed to #tarveri-log.
+        """
+        import uuid
+
+        from tarveri.cogs.admin_cog import MassRevocationApprovalView
+
+        short_id = f"MREV-{uuid.uuid4().hex[:6].upper()}"
+        user_ids = [m.id for m, _ in candidates]
+
+        # Check if an active PENDING action already exists for this guild to prevent duplicate alert spam
+        existing_active = await self.db.get_active_pending_mass_action_for_guild(guild.id, action_type)
+        if existing_active:
+            return existing_active["action_id"]
+
+        await self.db.create_pending_mass_action(
+            action_id=short_id,
+            guild_id=guild.id,
+            action_type=action_type,
+            user_ids=user_ids,
+            reason=reason,
+        )
+
+        preview_mentions = [
+            m.mention if isinstance(getattr(m, "mention", None), str) else f"<@{getattr(m, 'id', 0)}>"
+            for m, _ in candidates[:10]
+        ]
+        more_count = len(candidates) - 10
+        preview_str = ", ".join(preview_mentions)
+        if more_count > 0:
+            preview_str += f" *(+{more_count} more)*"
+
+        alert_embed = discord.Embed(
+            title="⚠️ [Security Guard] Mass Role Revocation Intercepted",
+            description=(
+                f"Self-healing detected that **{len(candidates)} members** would have their verified roles stripped "
+                f"in **{guild.name}**.\n\n"
+                "🛡️ **Threshold Circuit Breaker**: Any revocation affecting **5 or more members** is automatically paused "
+                "to prevent accidental mass role loss. Please review and authorize below."
+            ),
+            color=discord.Color.gold(),
+            timestamp=datetime.now(get_configured_tz()),
+        )
+        alert_embed.add_field(name="📋 Action ID", value=f"`{short_id}`", inline=True)
+        alert_embed.add_field(name="👥 Total Affected", value=f"**{len(candidates)}** members", inline=True)
+        alert_embed.add_field(name="📝 Trigger / Reason", value=reason, inline=False)
+        alert_embed.add_field(name="👤 Affected Members Preview", value=preview_str, inline=False)
+        alert_embed.set_footer(text="TARVeri Security Guard • Administrator Authorization Required")
+
+        try:
+            view = MassRevocationApprovalView(service=self)
+            log_ch = await self.get_or_create_tarveri_log_channel(guild)
+            if log_ch and hasattr(log_ch, "send"):
+                await log_ch.send(embed=alert_embed, view=view)
+        except Exception as exc:
+            logger.warning(f"Failed to dispatch mass revocation approval view to #tarveri-log in '{guild.name}': {exc}")
+
+        return short_id
+
+    async def execute_approved_mass_revocation(
+        self,
+        guild: discord.Guild,
+        action_id: str,
+        admin: discord.Member | discord.User | None = None,
+    ) -> tuple[bool, str]:
+        """
+        Executes a previously staged and admin-approved mass role revocation.
+        """
+        action = await self.db.get_pending_mass_action(action_id)
+        if not action:
+            return False, f"❌ Mass action `{action_id}` not found."
+
+        if action["status"] != "PENDING":
+            return False, f"⚠️ Mass action `{action_id}` has already been decided (`{action['status']}`)."
+
+        if action["guild_id"] != guild.id:
+            return False, "❌ Guild mismatch for this mass action."
+
+        user_ids: list[int] = action["user_ids"]
+        admin_id = getattr(admin, "id", 0) if admin else 0
+        admin_label = f"Admin {admin}" if admin else "Admin"
+
+        removed_count = 0
+        me = getattr(guild, "me", None)
+        bot_pos = getattr(getattr(me, "top_role", None), "position", 0) if me else 0
+
+        for uid in user_ids:
+            member = await self.get_or_fetch_member(guild, uid)
+            if not member:
+                continue
+            member_roles = getattr(member, "roles", []) or []
+            roles_to_strip = [
+                r
+                for r in member_roles
+                if any(self._match_faculty_role_in_list([r], fac) is not None for fac in FACULTY_ROLE_NAMES)
+                or any(self._match_campus_role_in_list([r], camp) is not None for camp in CAMPUS_ROLE_NAMES)
+                or any(self._match_study_level_role_in_list([r], lvl) is not None for lvl in STUDY_LEVEL_ROLE_NAMES)
+                or self._match_alumni_role_in_list([r]) is not None
+            ]
+            manageable = [
+                r for r in roles_to_strip
+                if not (isinstance(bot_pos, int) and isinstance(getattr(r, "position", 0), int) and getattr(r, "position", 0) >= bot_pos)
+            ]
+            if manageable:
+                try:
+                    await member.remove_roles(
+                        *manageable,
+                        reason=f"TARVeri: Mass revocation approved by {admin} ({action_id})",
+                    )
+                    removed_count += len(manageable)
+                except discord.HTTPException as exc:
+                    logger.warning(f"Could not strip roles from {member} during mass revocation: {exc}")
+
+        await self.db.update_pending_mass_action_status(action_id, status="APPROVED", decided_by_id=admin_id)
+        await self.db.log(
+            "INFO",
+            "MASS_REVOCATION_APPROVED",
+            f"{admin_label} (ID: {admin_id}) approved mass revocation {action_id} in '{guild.name}'. Removed {removed_count} role(s) from {len(user_ids)} member(s).",
+            guild=guild,
+            user_id=admin_id,
+        )
+
+        return True, f"✅ Successfully executed mass revocation `{action_id}` ({removed_count} roles stripped from {len(user_ids)} members)."
+
+    async def reject_mass_revocation(
+        self,
+        guild: discord.Guild,
+        action_id: str,
+        admin: discord.Member | discord.User | None = None,
+    ) -> tuple[bool, str]:
+        """
+        Rejects/dismisses a staged mass role revocation.
+        """
+        action = await self.db.get_pending_mass_action(action_id)
+        if not action:
+            return False, f"❌ Mass action `{action_id}` not found."
+
+        if action["status"] != "PENDING":
+            return False, f"⚠️ Mass action `{action_id}` has already been decided (`{action['status']}`)."
+
+        admin_id = getattr(admin, "id", 0) if admin else 0
+        admin_label = f"Admin {admin}" if admin else "Admin"
+
+        await self.db.update_pending_mass_action_status(action_id, status="REJECTED", decided_by_id=admin_id)
+        await self.db.log(
+            "INFO",
+            "MASS_REVOCATION_REJECTED",
+            f"{admin_label} (ID: {admin_id}) rejected mass revocation {action_id} in '{guild.name}'. All member roles preserved.",
+            guild=guild,
+            user_id=admin_id,
+        )
+
+        return True, f"🛑 Mass revocation `{action_id}` has been rejected. All member roles remain intact."

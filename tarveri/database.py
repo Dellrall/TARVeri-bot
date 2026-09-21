@@ -5,6 +5,7 @@ Asynchronous SQLite database layer with WAL mode, indexing, schema versioning, a
 from __future__ import annotations
 
 import gzip
+import json
 import logging
 import os
 import shutil
@@ -375,6 +376,18 @@ class Database:
                 UNIQUE(guild_id, target_type, target_value)
             );
 
+            CREATE TABLE IF NOT EXISTS pending_mass_actions (
+                action_id TEXT PRIMARY KEY,
+                guild_id INTEGER NOT NULL,
+                action_type TEXT NOT NULL,
+                user_ids_json TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                decided_by_id INTEGER,
+                decided_at TEXT
+            );
+
             CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_log(event_type);
             CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
             CREATE INDEX IF NOT EXISTS idx_audit_user_id ON audit_log(user_id);
@@ -388,6 +401,7 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_transitions_user ON verification_transitions(discord_user_id);
             CREATE INDEX IF NOT EXISTS idx_blacklist_lookup ON guild_blacklists(guild_id, target_type, target_value);
             CREATE INDEX IF NOT EXISTS idx_blacklist_guild ON guild_blacklists(guild_id);
+            CREATE INDEX IF NOT EXISTS idx_pending_mass_actions_guild ON pending_mass_actions(guild_id, status);
             """
         )
 
@@ -2211,5 +2225,166 @@ class Database:
                 (guild_id,),
             )
             return cursor.rowcount
+
+    # ==========================================
+    # 🛡️ 13. Mass Action Approvals & Circuit Breakers
+    # ==========================================
+
+    async def create_pending_mass_action(
+        self,
+        action_id: str,
+        guild_id: int,
+        action_type: str,
+        user_ids: list[int],
+        reason: str,
+    ) -> bool:
+        """Stages a mass action requiring explicit administrator approval before execution."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+        ts = now_formatted()
+        user_ids_json = json.dumps(user_ids)
+        try:
+            async with self.transaction() as conn:
+                await conn.execute(
+                    """INSERT INTO pending_mass_actions (
+                        action_id, guild_id, action_type, user_ids_json, reason, created_at, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'PENDING')""",
+                    (action_id, int(guild_id), action_type, user_ids_json, reason, ts),
+                )
+            return True
+        except Exception:
+            return False
+
+    async def get_pending_mass_action(self, action_id: str) -> dict[str, Any] | None:
+        """Retrieves a staged mass action by its unique identifier."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+        cursor = await self._conn.execute(
+            """SELECT action_id, guild_id, action_type, user_ids_json, reason, created_at, status, decided_by_id, decided_at
+               FROM pending_mass_actions WHERE action_id = ?""",
+            (action_id,),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        try:
+            uids = json.loads(row[3])
+        except Exception:
+            uids = []
+        return {
+            "action_id": row[0],
+            "guild_id": row[1],
+            "action_type": row[2],
+            "user_ids": uids,
+            "reason": row[4],
+            "created_at": row[5],
+            "status": row[6],
+            "decided_by_id": row[7],
+            "decided_at": row[8],
+        }
+
+    async def get_active_pending_mass_action_for_guild(
+        self,
+        guild_id: int,
+        action_type: str = "EMAIL_POLICY_REVOCATION",
+    ) -> dict[str, Any] | None:
+        """Checks if there is an active PENDING mass action of the given type for a guild."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+        cursor = await self._conn.execute(
+            """SELECT action_id, guild_id, action_type, user_ids_json, reason, created_at, status, decided_by_id, decided_at
+               FROM pending_mass_actions
+               WHERE guild_id = ? AND action_type = ? AND status = 'PENDING'
+               ORDER BY created_at DESC LIMIT 1""",
+            (int(guild_id), action_type),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        try:
+            uids = json.loads(row[3])
+        except Exception:
+            uids = []
+        return {
+            "action_id": row[0],
+            "guild_id": row[1],
+            "action_type": row[2],
+            "user_ids": uids,
+            "reason": row[4],
+            "created_at": row[5],
+            "status": row[6],
+            "decided_by_id": row[7],
+            "decided_at": row[8],
+        }
+
+    async def update_pending_mass_action_status(
+        self,
+        action_id: str,
+        status: str,
+        decided_by_id: int | None = None,
+    ) -> bool:
+        """Updates the status of a pending mass action (e.g. APPROVED, REJECTED, EXPIRED)."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+        ts = now_formatted()
+        async with self.transaction() as conn:
+            cursor = await conn.execute(
+                """UPDATE pending_mass_actions
+                   SET status = ?, decided_by_id = ?, decided_at = ?
+                   WHERE action_id = ?""",
+                (status, decided_by_id, ts, action_id),
+            )
+            return cursor.rowcount > 0
+
+    async def list_pending_mass_actions(
+        self,
+        guild_id: int | None = None,
+        status: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Lists pending mass actions, optionally filtered by guild and/or status."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+
+        conditions = []
+        params: list[Any] = []
+
+        if guild_id is not None:
+            conditions.append("guild_id = ?")
+            params.append(int(guild_id))
+
+        if status is not None:
+            conditions.append("status = ?")
+            params.append(status)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        query = f"""SELECT action_id, guild_id, action_type, user_ids_json, reason, created_at, status, decided_by_id, decided_at
+                    FROM pending_mass_actions
+                    {where_clause}
+                    ORDER BY created_at DESC LIMIT ?"""
+        params.append(limit)
+
+        cursor = await self._conn.execute(query, tuple(params))
+        rows = await cursor.fetchall()
+        result = []
+        for row in rows:
+            try:
+                uids = json.loads(row[3])
+            except Exception:
+                uids = []
+            result.append(
+                {
+                    "action_id": row[0],
+                    "guild_id": row[1],
+                    "action_type": row[2],
+                    "user_ids": uids,
+                    "reason": row[4],
+                    "created_at": row[5],
+                    "status": row[6],
+                    "decided_by_id": row[7],
+                    "decided_at": row[8],
+                }
+            )
+        return result
 
 

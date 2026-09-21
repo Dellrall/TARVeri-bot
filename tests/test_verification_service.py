@@ -1650,6 +1650,154 @@ async def test_reconcile_self_healing_email_policy_and_unverified_cleanup(tmp_pa
     await db.close()
 
 
+@pytest.mark.asyncio
+async def test_mass_revocation_circuit_breaker_tripped(tmp_path):
+    bot = MagicMock()
+    guild = MagicMock(spec=discord.Guild)
+    guild.id = 88888
+    guild.name = "Mass Action Guild"
+
+    focs_role = MagicMock(spec=discord.Role)
+    focs_role.name = "FOCS"
+    focs_role.id = 101
+    guild.roles = [focs_role]
+
+    db = Database(str(tmp_path / "mass_breaker.db"))
+    await db.connect()
+    rate_limiter = RateLimiter()
+    service = VerificationService(bot, db, "secret", rate_limiter)
+
+    # Enable email verification and email enforcement for this guild
+    await db.set_guild_email_verification(guild.id, enabled=True)
+    await db.set_guild_email_enforcement(guild.id, enabled=True)
+
+    # Setup 6 members with verified DB status but no institutional email
+    # Default threshold is 5, so 6 will trip the circuit breaker!
+    members = []
+    for i in range(1, 7):
+        m = MagicMock(spec=discord.Member)
+        m.id = 20000 + i
+        m.bot = False
+        m.roles = [focs_role]
+        m.remove_roles = AsyncMock()
+        m.add_roles = AsyncMock()
+        members.append(m)
+        await db.record_verification(m.id, f"hash_{m.id}", "M", campus_code="W", level_code="R")
+
+    guild.members = members
+    guild.get_member.side_effect = lambda uid: next((m for m in members if m.id == uid), None)
+    bot.guilds = [guild]
+
+    # Mock stage_mass_revocation to observe circuit breaker interception
+    with patch.object(service, "stage_mass_revocation", wraps=service.stage_mass_revocation) as mock_stage:
+        summary = await service.reconcile_verified_members(guild)
+
+        # Circuit breaker should have been tripped
+        mock_stage.assert_called_once()
+        action = await db.get_active_pending_mass_action_for_guild(guild.id, "EMAIL_POLICY_REVOCATION")
+        assert action is not None
+        action_id = action["action_id"]
+        assert action_id.startswith("MREV-")
+
+        # Roles should NOT have been stripped directly due to breaker tripping
+        for m in members:
+            m.remove_roles.assert_not_called()
+
+        assert summary["unauthorized_cleaned"] == 0
+
+        # Pending action in DB
+        assert len(action["user_ids"]) == 6
+        assert action["status"] == "PENDING"
+
+    await db.close()
+
+
+@pytest.mark.asyncio
+async def test_mass_revocation_execution_and_rejection(tmp_path):
+    bot = MagicMock()
+    guild = MagicMock(spec=discord.Guild)
+    guild.id = 77777
+    guild.name = "Approval Guild"
+
+    focs_role = MagicMock(spec=discord.Role)
+    focs_role.name = "FOCS"
+    focs_role.id = 202
+    guild.roles = [focs_role]
+
+    db = Database(str(tmp_path / "mass_exec.db"))
+    await db.connect()
+    rate_limiter = RateLimiter()
+    service = VerificationService(bot, db, "secret", rate_limiter)
+
+    # 5 members
+    members = []
+    for i in range(1, 6):
+        m = MagicMock(spec=discord.Member)
+        m.id = 30000 + i
+        m.bot = False
+        m.roles = [focs_role]
+        m.remove_roles = AsyncMock()
+        members.append(m)
+
+    guild.members = members
+    guild.get_member.side_effect = lambda uid: next((m for m in members if m.id == uid), None)
+    bot.get_guild.return_value = guild
+
+    # Stage an action
+    user_ids = [m.id for m in members]
+    action_id = "MREV-EXEC1"
+    await db.create_pending_mass_action(
+        action_id=action_id,
+        guild_id=guild.id,
+        action_type="EMAIL_POLICY_REVOCATION",
+        user_ids=user_ids,
+        reason="Test Execution",
+    )
+
+    # 1. Execute approval
+    admin_user = MagicMock(spec=discord.Member)
+    admin_user.id = 9999
+    admin_user.__str__.return_value = "Admin#0001"
+
+    success, msg = await service.execute_approved_mass_revocation(guild, action_id, admin=admin_user)
+    assert success is True
+    assert "Successfully executed mass revocation" in msg
+
+    for m in members:
+        m.remove_roles.assert_called_once_with(focs_role, reason=f"TARVeri: Mass revocation approved by {admin_user} ({action_id})")
+
+    # Check DB status is APPROVED
+    action = await db.get_pending_mass_action(action_id)
+    assert action["status"] == "APPROVED"
+    assert action["decided_by_id"] == 9999
+
+    # 2. Stage another action and test rejection
+    action_id_2 = "MREV-REJ1"
+    await db.create_pending_mass_action(
+        action_id=action_id_2,
+        guild_id=guild.id,
+        action_type="STRAY_UNVERIFIED_CLEANUP",
+        user_ids=user_ids,
+        reason="Test Rejection",
+    )
+
+    admin_rej = MagicMock(spec=discord.Member)
+    admin_rej.id = 8888
+    admin_rej.__str__.return_value = "AdminRej#0002"
+
+    rej_success, rej_msg = await service.reject_mass_revocation(guild, action_id_2, admin=admin_rej)
+    assert rej_success is True
+    assert "has been rejected" in rej_msg
+
+    action_2 = await db.get_pending_mass_action(action_id_2)
+    assert action_2["status"] == "REJECTED"
+    assert action_2["decided_by_id"] == 8888
+
+    await db.close()
+
+
+
+
 
 
 

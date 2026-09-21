@@ -718,3 +718,73 @@ async def test_database_backfill_legacy_verifications(tmp_path):
         await db.close()
 
 
+@pytest.mark.asyncio
+async def test_database_pending_mass_actions(tmp_path):
+    db_file = str(tmp_path / "mass_actions_test.db")
+    db = Database(db_file)
+    await db.connect()
+    try:
+        guild_id = 998877
+        action_id = "MREV-TEST1"
+        user_ids = [1001, 1002, 1003, 1004, 1005]
+        reason = "Test email policy revocation"
+
+        # 1. Create pending mass action
+        created = await db.create_pending_mass_action(
+            action_id=action_id,
+            guild_id=guild_id,
+            action_type="EMAIL_POLICY_REVOCATION",
+            user_ids=user_ids,
+            reason=reason,
+        )
+        assert created is True
+
+        # 2. Duplicate action_id should return False
+        dup = await db.create_pending_mass_action(
+            action_id=action_id,
+            guild_id=guild_id,
+            action_type="EMAIL_POLICY_REVOCATION",
+            user_ids=user_ids,
+            reason=reason,
+        )
+        assert dup is False
+
+        # 3. Retrieve pending action by ID
+        action = await db.get_pending_mass_action(action_id)
+        assert action is not None
+        assert action["action_id"] == action_id
+        assert action["guild_id"] == guild_id
+        assert action["action_type"] == "EMAIL_POLICY_REVOCATION"
+        assert action["user_ids"] == user_ids
+        assert action["status"] == "PENDING"
+        assert action["reason"] == reason
+
+        # 4. Check active pending action for guild
+        active = await db.get_active_pending_mass_action_for_guild(guild_id, "EMAIL_POLICY_REVOCATION")
+        assert active is not None
+        assert active["action_id"] == action_id
+
+        # 5. List pending actions
+        actions = await db.list_pending_mass_actions(guild_id=guild_id, status="PENDING")
+        assert len(actions) == 1
+        assert actions[0]["action_id"] == action_id
+
+        # 6. Update status to APPROVED
+        updated = await db.update_pending_mass_action_status(action_id, "APPROVED", decided_by_id=55555)
+        assert updated is True
+
+        action_after = await db.get_pending_mass_action(action_id)
+        assert action_after["status"] == "APPROVED"
+        assert action_after["decided_by_id"] == 55555
+        assert action_after["decided_at"] is not None
+
+        # No active pending action left
+        assert await db.get_active_pending_mass_action_for_guild(guild_id, "EMAIL_POLICY_REVOCATION") is None
+
+        # Updating non-existent action
+        assert await db.update_pending_mass_action_status("MREV-NONEXISTENT", "APPROVED") is False
+    finally:
+        await db.close()
+
+
+

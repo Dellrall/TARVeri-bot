@@ -408,6 +408,7 @@ class Settings:
     max_storage_mb: int = 500
     enable_storage_guard: bool = True
     storage_check_interval_hours: int = 6
+    mass_revocation_threshold: int = 5
 
     @property
     def restrict_smtp_usage(self) -> bool:
@@ -520,6 +521,7 @@ class Settings:
         max_storage_mb = _env_int("TARVERI_MAX_STORAGE_MB", "MAX_STORAGE_MB", default=500)
         enable_storage_guard = _env_bool("TARVERI_ENABLE_STORAGE_GUARD", "ENABLE_STORAGE_GUARD", default=True)
         storage_check_interval_hours = _env_int("TARVERI_STORAGE_CHECK_INTERVAL_HOURS", "STORAGE_CHECK_INTERVAL_HOURS", default=6)
+        mass_revocation_threshold = _env_int("TARVERI_MASS_REVOCATION_THRESHOLD", "MASS_REVOCATION_THRESHOLD", default=5)
 
         if validate:
             if not bot_token:
@@ -590,6 +592,7 @@ class Settings:
             max_storage_mb=max_storage_mb,
             enable_storage_guard=enable_storage_guard,
             storage_check_interval_hours=storage_check_interval_hours,
+            mass_revocation_threshold=mass_revocation_threshold,
         )
 
 

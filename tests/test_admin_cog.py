@@ -4,7 +4,7 @@ import discord
 import pytest
 from discord import app_commands
 
-from tarveri.cogs.admin_cog import AdminCog, is_admin_or_has_role
+from tarveri.cogs.admin_cog import AdminCog, MassRevocationApprovalView, is_admin_or_has_role
 from tarveri.cogs.admin_dashboard import (
     AdminDashboardView,
     AlumniRevokeModal,
@@ -935,6 +935,178 @@ async def test_admin_email_enforcement_slash(tmp_path):
     assert "DISABLED" in interaction.response.send_message.call_args[0][0]
 
     await db.close()
+
+
+@pytest.mark.asyncio
+async def test_mass_revocation_approval_view_interactions(tmp_path):
+    db_path = str(tmp_path / "view_test.db")
+    db = Database(db_path)
+    await db.connect()
+
+    service = MagicMock()
+    service.db = db
+    service.execute_approved_mass_revocation = AsyncMock(return_value=(True, "Executed successfully"))
+    service.reject_mass_revocation = AsyncMock(return_value=(True, "Rejected successfully"))
+
+    guild = MagicMock(spec=discord.Guild)
+    guild.id = 11223344
+    guild.name = "View Guild"
+
+    # Non-admin user
+    non_admin = MagicMock(spec=discord.Member)
+    non_admin.guild_permissions.administrator = False
+    non_admin.guild_permissions.manage_guild = False
+    non_admin.id = 1111
+
+    # Admin user
+    admin_user = MagicMock(spec=discord.Member)
+    admin_user.guild_permissions.administrator = True
+    admin_user.id = 2222
+    admin_user.mention = "<@2222>"
+
+    # 1. Staged action in DB
+    action_id = "MREV-VIEW1"
+    await db.create_pending_mass_action(
+        action_id=action_id,
+        guild_id=guild.id,
+        action_type="EMAIL_POLICY_REVOCATION",
+        user_ids=[101, 102, 103, 104, 105],
+        reason="View Test",
+    )
+
+    view = MassRevocationApprovalView(service=service)
+
+    # 2. Non-admin clicks Approve -> Rejected with permission error
+    inter_non_admin = MagicMock(spec=discord.Interaction)
+    inter_non_admin.guild = guild
+    inter_non_admin.user = non_admin
+    inter_non_admin.response.send_message = AsyncMock()
+
+    await view.children[0].callback(inter_non_admin)
+    inter_non_admin.response.send_message.assert_called_once()
+    assert "Only administrators" in inter_non_admin.response.send_message.call_args[0][0]
+    service.execute_approved_mass_revocation.assert_not_called()
+
+    # 3. Admin clicks Approve -> Executed
+    inter_admin = MagicMock(spec=discord.Interaction)
+    inter_admin.guild = guild
+    inter_admin.user = admin_user
+    inter_admin.response.defer = AsyncMock()
+    inter_admin.followup.send = AsyncMock()
+    inter_admin.message = MagicMock()
+    inter_admin.message.edit = AsyncMock()
+
+    await view.children[0].callback(inter_admin)
+    service.execute_approved_mass_revocation.assert_called_once_with(
+        guild, action_id, admin=admin_user
+    )
+    inter_admin.followup.send.assert_called_once_with("Executed successfully", ephemeral=True)
+    inter_admin.message.edit.assert_called_once()
+
+    # Mark action 1 as approved in DB to simulate service execution
+    await db.update_pending_mass_action_status(action_id, "APPROVED", decided_by_id=admin_user.id)
+
+    # 4. Test Reject flow
+    action_id_2 = "MREV-VIEW2"
+    await db.create_pending_mass_action(
+        action_id=action_id_2,
+        guild_id=guild.id,
+        action_type="EMAIL_POLICY_REVOCATION",
+        user_ids=[201, 202, 203, 204, 205],
+        reason="View Test Reject",
+    )
+
+    inter_admin_rej = MagicMock(spec=discord.Interaction)
+    inter_admin_rej.guild = guild
+    inter_admin_rej.user = admin_user
+    inter_admin_rej.response.defer = AsyncMock()
+    inter_admin_rej.followup.send = AsyncMock()
+    inter_admin_rej.message = MagicMock()
+    inter_admin_rej.message.edit = AsyncMock()
+
+    await view.children[1].callback(inter_admin_rej)
+    service.reject_mass_revocation.assert_called_once_with(
+        guild, action_id_2, admin=admin_user
+    )
+    inter_admin_rej.followup.send.assert_called_once_with("Rejected successfully", ephemeral=True)
+
+    await db.close()
+
+
+@pytest.mark.asyncio
+async def test_admin_mass_revocation_slash(tmp_path):
+    db_path = str(tmp_path / "mass_slash_test.db")
+    db = Database(db_path)
+    await db.connect()
+
+    bot = MagicMock()
+    service = MagicMock()
+    service.db = db
+    service.execute_approved_mass_revocation = AsyncMock(return_value=(True, "Approved via slash"))
+    service.reject_mass_revocation = AsyncMock(return_value=(True, "Rejected via slash"))
+    rate_limiter = MagicMock()
+    cog = AdminCog(bot, db, service, rate_limiter, admin_role_name="TARVeri Admin")
+
+    guild = MagicMock(spec=discord.Guild)
+    guild.id = 55667788
+    guild.name = "Mass Slash Guild"
+
+    admin_user = MagicMock(spec=discord.Member)
+    admin_user.guild_permissions.administrator = True
+    admin_user.__str__.return_value = "Admin#0001"
+    admin_user.id = 998811
+
+    # Stage an action
+    action_id = "MREV-SLASH1"
+    await db.create_pending_mass_action(
+        action_id=action_id,
+        guild_id=guild.id,
+        action_type="EMAIL_POLICY_REVOCATION",
+        user_ids=[301, 302, 303, 304, 305],
+        reason="Slash Command Test",
+    )
+
+    # 1. List actions
+    inter_list = MagicMock(spec=discord.Interaction)
+    inter_list.guild = guild
+    inter_list.user = admin_user
+    inter_list.response.defer = AsyncMock()
+    inter_list.followup.send = AsyncMock()
+
+    await cog.mass_revocation.callback(cog, inter_list, action="list")
+    inter_list.followup.send.assert_called_once()
+    embed = inter_list.followup.send.call_args[1]["embed"]
+    assert "Mass Actions Queue" in embed.title
+    assert action_id in embed.fields[0].name
+
+    # 2. Approve action
+    inter_app = MagicMock(spec=discord.Interaction)
+    inter_app.guild = guild
+    inter_app.user = admin_user
+    inter_app.response.defer = AsyncMock()
+    inter_app.followup.send = AsyncMock()
+
+    await cog.mass_revocation.callback(cog, inter_app, action="approve", action_id=action_id)
+    service.execute_approved_mass_revocation.assert_called_once_with(
+        guild, action_id, admin=admin_user
+    )
+    inter_app.followup.send.assert_called_once_with("Approved via slash", ephemeral=True)
+
+    # 3. Reject action
+    inter_rej = MagicMock(spec=discord.Interaction)
+    inter_rej.guild = guild
+    inter_rej.user = admin_user
+    inter_rej.response.defer = AsyncMock()
+    inter_rej.followup.send = AsyncMock()
+
+    await cog.mass_revocation.callback(cog, inter_rej, action="reject", action_id=action_id)
+    service.reject_mass_revocation.assert_called_once_with(
+        guild, action_id, admin=admin_user
+    )
+    inter_rej.followup.send.assert_called_once_with("Rejected via slash", ephemeral=True)
+
+    await db.close()
+
 
 
 
