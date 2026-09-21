@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import time
 from datetime import datetime
+from typing import Any
 
 import discord
 from discord import app_commands
@@ -1152,6 +1153,19 @@ class OtpVerificationPromptView(discord.ui.View):
             ephemeral=True,
         )
         schedule_ttl_delete(interaction, delay=30.0)
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item[Any]) -> None:
+        if isinstance(error, (discord.NotFound, discord.InteractionResponded)) or (
+            isinstance(error, discord.HTTPException) and error.code in (10062, 40060)
+        ):
+            logger.debug(
+                "Transient Discord interaction timeout (10062 / 404) on item '%s' for user ID %s: %s",
+                getattr(item, "label", item),
+                getattr(interaction.user, "id", "Unknown"),
+                error,
+            )
+            return
+        logger.error("Unhandled error in OtpVerificationPromptView for item %s: %s", item, error, exc_info=error)
 
 
 class VerificationCog(commands.Cog, name="Verification"):
