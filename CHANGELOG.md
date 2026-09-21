@@ -2,7 +2,38 @@
 
 All notable changes to the **TARVeri** Discord Student & Guest Verification Bot are documented in this file.
 
-## [v2.5.0] — 2026-09-17 (Current)
+## [v2.6.0] — 2026-09-21 (Current)
+### 🚫 Multi-Vector Per-Server Blacklist System
+* **Tri-Vector Blind Index Blacklisting**:
+  - Implemented per-server blacklist storage (`guild_blacklists`) supporting 3 independent dimensions:
+    - `USER`: Discord User Snowflake ID.
+    - `STUDENT_ID`: Blind HMAC-SHA256 hashed Student ID (with masked display `23***34`).
+    - `EMAIL`: Blind HMAC-SHA256 hashed institutional email (with masked display `s***@student...`).
+  - Zero plaintext exposure of student PII in blacklist tables.
+* **Instant Auto-Revocation & Verification Gating**:
+  - Blacklisting any target immediately strips all faculty, campus, study level, alumni, and guest roles from the affected member in that guild.
+  - Verification attempts (`/verify`) are blocked immediately with `BLACKLIST_ATTEMPT_BLOCKED` logging and reason feedback.
+  - Prevents blacklisted users from creating referral codes or opening guest review tickets; referral codes from blacklisted referrers are blocked from redemption.
+* **Self-Healing & Join Guard**:
+  - `on_member_join` and `reconcile_verified_members` automatically ignore blacklisted users and strip stray roles during self-healing cycles.
+  - Strict per-guild isolation: blacklist in Guild A never leaks into or impacts verification status in Guild B.
+* **Admin Slash Commands (`/admin blacklist`)**:
+  - Added `/admin blacklist user`, `/admin blacklist student_id`, `/admin blacklist email`, `/admin blacklist remove`, `/admin blacklist list`, `/admin blacklist clear`.
+
+### 🛡️ Tiered Trust & Cross-Server Synchronization
+* **Tier 1 (Fast Verified) vs Tier 2 (Email-Attested)**:
+  - Servers can configure email verification requirements independently (`/admin email_verification <True|False>`).
+  - Tier 1 students (Student ID verified without email OTP) are auto-assigned roles in Opt-Out servers, while Opt-In servers hold roles in escrow until institutional email OTP is completed.
+  - Upgrading to Tier 2 in any Opt-In server automatically unlocks roles across all mutual Opt-In servers.
+* **Universal Cross-Server Unverification (`/admin unverify`)**:
+  - Unlinks student verification from SQLite, clears rate limiters, and strips faculty/campus/level/alumni roles across **all mutual servers** shared with the bot.
+
+### 🧪 Test Suite Hardening
+* Expanded test suite from 215 to **223 passing unit tests** with 0 warnings under `-W error` (including complete blacklist CRUD, verification gating, guest blocking, and slash command integration tests in `tests/test_blacklist.py`).
+
+---
+
+## [v2.5.0] — 2026-09-17
 ### ☁️ Continuous Cloud Replication & Litestream Integration
 * **Litestream SQLite Cloud Streaming**:
   - Configured continuous frame-by-frame SQLite streaming to Cloudflare R2 / AWS S3 via `litestream.yml` (`sync-interval: 10s`, `retention: 720h`).

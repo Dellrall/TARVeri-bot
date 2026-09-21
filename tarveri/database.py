@@ -246,10 +246,11 @@ class Database:
 
     async def connect(self) -> None:
         """Establishes connection, verifies schema version, and creates schema and indexes."""
-        if self._conn is not None:
+        if self._conn:
             return
 
-        self._conn = await aiosqlite.connect(self.path)
+        self._conn = await aiosqlite.connect(self.path, timeout=60.0)
+        await self._conn.execute("PRAGMA busy_timeout = 60000;")
         await self._conn.execute("PRAGMA foreign_keys = ON;")
         # WAL mode lets reads (e.g. admin queries on audit_log) proceed without
         # blocking on writes (verifications), which matters as guild count grows.
@@ -270,9 +271,9 @@ class Database:
         except Exception as e:
             logger.warning(f"Could not execute database integrity check: {e}")
 
-        # Checkpoint WAL on startup to merge any uncheckpointed journal from previous process
+        # Checkpoint WAL on startup (PASSIVE mode to avoid blocking or requiring exclusive lock)
         try:
-            await self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            await self._conn.execute("PRAGMA wal_checkpoint(PASSIVE);")
         except Exception as e:
             logger.debug(f"Initial WAL checkpoint notice: {e}")
 
@@ -541,8 +542,8 @@ class Database:
         """Flushes SQLite WAL to disk and closes the connection cleanly."""
         if self._conn:
             try:
-                # Flush and truncate write-ahead log (WAL) into the main database file
-                await self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                # Flush write-ahead log (WAL) into the main database file non-blockingly
+                await self._conn.execute("PRAGMA wal_checkpoint(PASSIVE);")
                 await self._conn.commit()
             except Exception as e:
                 logger.warning(f"Failed to checkpoint WAL during database shutdown: {e}")
@@ -572,10 +573,11 @@ class Database:
         finally:
             self._tx_depth -= 1
 
-    async def checkpoint_wal(self) -> None:
-        """Flushes and truncates the SQLite write-ahead log (WAL) into the main database file."""
+    async def checkpoint_wal(self, mode: str = "PASSIVE") -> None:
+        """Flushes the SQLite write-ahead log (WAL) into the main database file."""
         if self._conn:
-            await self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            clean_mode = mode.upper() if mode.upper() in ("PASSIVE", "FULL", "RESTART", "TRUNCATE") else "PASSIVE"
+            await self._conn.execute(f"PRAGMA wal_checkpoint({clean_mode});")
 
     async def prune_audit_logs(self, older_than_days: int = 90) -> int:
         """Prunes audit log rows older than the specified number of days."""
