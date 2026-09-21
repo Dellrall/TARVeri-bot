@@ -1553,13 +1553,8 @@ class VerificationService:
                     )
                 continue
 
-            if guild_email_required and not is_email_verified:
-                # Member is Fast Verified (Tier 1), but server mandates institutional email (Tier 2).
-                # If retroactive role enforcement is NOT enabled, do NOT strip existing roles (protects members).
-                if not guild_email_enforced:
-                    continue
-
-                # When enforcement is explicitly enabled by admin, strip existing verified roles in this server.
+            if guild_email_required and not is_email_verified and guild_email_enforced:
+                # When retroactive enforcement is explicitly enabled by admin, strip existing verified roles in this server.
                 roles_to_strip = [
                     r
                     for r in member_roles

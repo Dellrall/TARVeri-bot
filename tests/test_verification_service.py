@@ -1580,7 +1580,7 @@ async def test_reconcile_self_healing_email_policy_and_unverified_cleanup(tmp_pa
     user_b.remove_roles = AsyncMock()
     user_b.add_roles = AsyncMock()
 
-    # User C (Unverified: not in DB, but has FOCS role in Discord)
+    # User C (Unverified: not in DB, but has stray FOCS role in Discord)
     user_c = MagicMock(spec=discord.Member)
     user_c.id = 10003
     user_c.bot = False
@@ -1588,7 +1588,14 @@ async def test_reconcile_self_healing_email_policy_and_unverified_cleanup(tmp_pa
     user_c.remove_roles = AsyncMock()
     user_c.add_roles = AsyncMock()
 
-    guild.members = [user_a, user_b, user_c]
+    # User D (Tier 1: verified in DB without email, missing FOCS role because it was stripped earlier)
+    user_d = MagicMock(spec=discord.Member)
+    user_d.id = 10004
+    user_d.roles = []
+    user_d.remove_roles = AsyncMock()
+    user_d.add_roles = AsyncMock()
+
+    guild.members = [user_a, user_b, user_c, user_d]
 
     def _get_m(uid):
         if uid == 10001:
@@ -1597,6 +1604,8 @@ async def test_reconcile_self_healing_email_policy_and_unverified_cleanup(tmp_pa
             return user_b
         elif uid == 10003:
             return user_c
+        elif uid == 10004:
+            return user_d
         return None
 
     guild.get_member.side_effect = _get_m
@@ -1611,20 +1620,28 @@ async def test_reconcile_self_healing_email_policy_and_unverified_cleanup(tmp_pa
         student_email_encrypted=b"enc", student_email_hash="email_hash_b"
     )
 
-    # 1. Enforcement disabled (default): User A's existing verified role is safely PRESERVED
+    # Record User D without email (past verified user)
+    await db.record_verification(10004, "hash_d", "M", campus_code="W", level_code="R")
+
+    # 1. Enforcement disabled (default): User A's role is PRESERVED, User D's missing role is RESTORED!
     summary_default = await service.reconcile_verified_members(guild)
     user_a.remove_roles.assert_not_called()
     user_b.add_roles.assert_called_once()
+    user_d.add_roles.assert_called_once()
     assert summary_default["unauthorized_cleaned"] == 0
+    assert summary_default["restored"] >= 2
 
-    # 2. Enforcement enabled: User A's role is stripped
+    # 2. Enforcement enabled: User A & User D have their roles stripped
+    user_a.roles = [focs_role]
+    user_d.roles = [focs_role]
     await db.set_guild_email_enforcement(guild.id, enabled=True)
     user_b.add_roles.reset_mock()
     user_c.remove_roles.reset_mock()
     summary_enforced = await service.reconcile_verified_members(guild)
 
     user_a.remove_roles.assert_called_once()
-    assert summary_enforced["unauthorized_cleaned"] == 1
+    user_d.remove_roles.assert_called_once()
+    assert summary_enforced["unauthorized_cleaned"] == 2
 
     # User C should have had stray role stripped
     user_c.remove_roles.assert_called_once()
