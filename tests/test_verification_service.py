@@ -1611,19 +1611,24 @@ async def test_reconcile_self_healing_email_policy_and_unverified_cleanup(tmp_pa
         student_email_encrypted=b"enc", student_email_hash="email_hash_b"
     )
 
-    summary = await service.reconcile_verified_members(guild)
-
-    # User A should have had role stripped
-    user_a.remove_roles.assert_called_once()
-    assert summary["unauthorized_cleaned"] == 1
-
-    # User B should have had role restored
+    # 1. Enforcement disabled (default): User A's existing verified role is safely PRESERVED
+    summary_default = await service.reconcile_verified_members(guild)
+    user_a.remove_roles.assert_not_called()
     user_b.add_roles.assert_called_once()
-    assert summary["restored"] >= 1
+    assert summary_default["unauthorized_cleaned"] == 0
+
+    # 2. Enforcement enabled: User A's role is stripped
+    await db.set_guild_email_enforcement(guild.id, enabled=True)
+    user_b.add_roles.reset_mock()
+    user_c.remove_roles.reset_mock()
+    summary_enforced = await service.reconcile_verified_members(guild)
+
+    user_a.remove_roles.assert_called_once()
+    assert summary_enforced["unauthorized_cleaned"] == 1
 
     # User C should have had stray role stripped
     user_c.remove_roles.assert_called_once()
-    assert summary["unverified_cleaned"] == 1
+    assert summary_enforced["unverified_cleaned"] == 1
 
     await db.close()
 

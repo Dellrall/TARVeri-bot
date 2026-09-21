@@ -305,6 +305,7 @@ class Database:
                 review_channel_id INTEGER,
                 admin_role_name TEXT,
                 require_email_verification INTEGER DEFAULT 0,
+                enforce_email_verification INTEGER DEFAULT 0,
                 updated_at TEXT NOT NULL
             );
 
@@ -401,6 +402,7 @@ class Database:
             ("review_channel_id", "INTEGER"),
             ("admin_role_name", "TEXT"),
             ("require_email_verification", "INTEGER DEFAULT 0"),
+            ("enforce_email_verification", "INTEGER DEFAULT 0"),
             ("updated_at", "TEXT DEFAULT ''"),
         ]:
             if col not in existing_guild_cols:
@@ -1347,12 +1349,12 @@ class Database:
 
     async def get_guild_settings(
         self, guild_id: int
-    ) -> tuple[int | None, int | None, str | None, int | None, str | None, int] | None:
-        """Returns (welcome_channel_id, help_channel_id, guest_role_name, review_channel_id, admin_role_name, require_email_verification) for the given guild, or None."""
+    ) -> tuple[int | None, int | None, str | None, int | None, str | None, int, int] | None:
+        """Returns (welcome_channel_id, help_channel_id, guest_role_name, review_channel_id, admin_role_name, require_email_verification, enforce_email_verification) for the given guild, or None."""
         if not self._conn:
             raise RuntimeError("Database connection is not open.")
         cursor = await self._conn.execute(
-            """SELECT welcome_channel_id, help_channel_id, guest_role_name, review_channel_id, admin_role_name, COALESCE(require_email_verification, 0)
+            """SELECT welcome_channel_id, help_channel_id, guest_role_name, review_channel_id, admin_role_name, COALESCE(require_email_verification, 0), COALESCE(enforce_email_verification, 0)
                FROM guild_settings WHERE guild_id = ?""",
             (guild_id,),
         )
@@ -1391,6 +1393,43 @@ class Database:
                    VALUES (?, ?, ?)
                    ON CONFLICT(guild_id) DO UPDATE SET
                        require_email_verification = excluded.require_email_verification,
+                       updated_at = excluded.updated_at""",
+                (guild_id, val, ts),
+            )
+
+    async def is_guild_email_enforcement_enabled(self, guild_id: int | Any) -> bool:
+        """Checks if retroactive role removal for non-email-verified members is enforced for this guild (default: False)."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+        if not isinstance(guild_id, int):
+            try:
+                guild_id = int(guild_id)
+            except (ValueError, TypeError):
+                return False
+        cursor = await self._conn.execute(
+            "SELECT COALESCE(enforce_email_verification, 0) FROM guild_settings WHERE guild_id = ?",
+            (guild_id,),
+        )
+        row = await cursor.fetchone()
+        if not row or row[0] is None:
+            return False
+        return bool(row[0])
+
+    async def set_guild_email_enforcement(self, guild_id: int | Any, enabled: bool) -> None:
+        """Sets whether retroactive role removal for non-email-verified members is enforced (True or False)."""
+        if not isinstance(guild_id, int):
+            try:
+                guild_id = int(guild_id)
+            except (ValueError, TypeError):
+                return
+        ts = now_formatted()
+        val = 1 if enabled else 0
+        async with self.transaction() as conn:
+            await conn.execute(
+                """INSERT INTO guild_settings (guild_id, enforce_email_verification, updated_at)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(guild_id) DO UPDATE SET
+                       enforce_email_verification = excluded.enforce_email_verification,
                        updated_at = excluded.updated_at""",
                 (guild_id, val, ts),
             )
@@ -2020,16 +2059,16 @@ class Database:
             )
             return cursor.rowcount > 0
 
-    async def is_blacklisted(
+    async def get_blacklist_match(
         self,
         guild_id: int,
         user_id: int | None = None,
         student_id_hash: str | None = None,
         email_hash: str | None = None,
-    ) -> tuple[bool, str | None]:
+    ) -> dict[str, Any] | None:
         """
-        Checks if a user, student ID hash, or email hash is blacklisted in the specified guild.
-        Returns (True, reason) if blacklisted, else (False, None).
+        Returns full match details if a user, student ID hash, or email hash is blacklisted in the guild.
+        Returns dict with keys: reason, target_type, target_value, display_mask, created_at, or None.
         """
         if not self._conn:
             raise RuntimeError("Database connection is not open.")
@@ -2037,7 +2076,7 @@ class Database:
         try:
             clean_guild_id = int(guild_id)
         except (ValueError, TypeError):
-            return False, None
+            return None
 
         conditions = []
         params: list[Any] = [clean_guild_id]
@@ -2059,16 +2098,43 @@ class Database:
             params.append(email_hash.strip())
 
         if not conditions:
-            return False, None
+            return None
 
-        query = f"""SELECT reason, target_type FROM guild_blacklists
+        query = f"""SELECT reason, target_type, target_value, display_mask, created_at FROM guild_blacklists
                     WHERE guild_id = ? AND ({' OR '.join(conditions)})
                     LIMIT 1"""
 
         cursor = await self._conn.execute(query, tuple(params))
         row = await cursor.fetchone()
         if row:
-            return True, row[0]
+            return {
+                "reason": row[0],
+                "target_type": row[1],
+                "target_value": row[2],
+                "display_mask": row[3] or row[2],
+                "created_at": row[4],
+            }
+        return None
+
+    async def is_blacklisted(
+        self,
+        guild_id: int,
+        user_id: int | None = None,
+        student_id_hash: str | None = None,
+        email_hash: str | None = None,
+    ) -> tuple[bool, str | None]:
+        """
+        Checks if a user, student ID hash, or email hash is blacklisted in the specified guild.
+        Returns (True, reason) if blacklisted, else (False, None).
+        """
+        match = await self.get_blacklist_match(
+            guild_id=guild_id,
+            user_id=user_id,
+            student_id_hash=student_id_hash,
+            email_hash=email_hash,
+        )
+        if match:
+            return True, match["reason"]
         return False, None
 
     async def get_guild_blacklist(

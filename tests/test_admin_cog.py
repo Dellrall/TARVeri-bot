@@ -876,6 +876,64 @@ async def test_admin_dashboard_toggle_email_verification(tmp_path):
     embed = interaction.edit_original_response.call_args[1]["embed"]
     assert "OPTIONAL" in embed.description
 
+    # 3. Toggle enforcement from False -> True
+    interaction.edit_original_response.reset_mock()
+    await view._on_toggle_email_enforcement_clicked(interaction)
+    assert await db.is_guild_email_enforcement_enabled(guild.id) is True
+    interaction.edit_original_response.assert_called_once()
+    embed = interaction.edit_original_response.call_args[1]["embed"]
+    assert "ENFORCED" in embed.description
+
+    # 4. Toggle enforcement from True -> False
+    interaction.edit_original_response.reset_mock()
+    await view._on_toggle_email_enforcement_clicked(interaction)
+    assert await db.is_guild_email_enforcement_enabled(guild.id) is False
+    interaction.edit_original_response.assert_called_once()
+    embed = interaction.edit_original_response.call_args[1]["embed"]
+    assert "DISABLED" in embed.description
+
+    await db.close()
+
+
+@pytest.mark.asyncio
+async def test_admin_email_enforcement_slash(tmp_path):
+    db_path = str(tmp_path / "enforce_slash_test.db")
+    db = Database(db_path)
+    await db.connect()
+
+    bot = MagicMock()
+    service = MagicMock()
+    rate_limiter = MagicMock()
+    cog = AdminCog(bot, db, service, rate_limiter, admin_role_name="TARVeri Admin")
+
+    guild = MagicMock(spec=discord.Guild)
+    guild.id = 99887766
+    guild.name = "Enforce Slash Guild"
+
+    admin_user = MagicMock(spec=discord.Member)
+    admin_user.guild_permissions.administrator = True
+    admin_user.__str__.return_value = "Admin#0001"
+    admin_user.id = 554433
+
+    interaction = MagicMock(spec=discord.Interaction)
+    interaction.guild = guild
+    interaction.user = admin_user
+    interaction.response = MagicMock()
+    interaction.response.send_message = AsyncMock()
+
+    # 1. Enable enforcement
+    await cog.email_enforcement.callback(cog, interaction, enabled=True)
+    assert await db.is_guild_email_enforcement_enabled(guild.id) is True
+    interaction.response.send_message.assert_called_once()
+    assert "ENFORCED" in interaction.response.send_message.call_args[0][0]
+
+    # 2. Disable enforcement
+    interaction.response.send_message.reset_mock()
+    await cog.email_enforcement.callback(cog, interaction, enabled=False)
+    assert await db.is_guild_email_enforcement_enabled(guild.id) is False
+    interaction.response.send_message.assert_called_once()
+    assert "DISABLED" in interaction.response.send_message.call_args[0][0]
+
     await db.close()
 
 

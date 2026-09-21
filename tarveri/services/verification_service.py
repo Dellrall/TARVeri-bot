@@ -1249,20 +1249,48 @@ class VerificationService:
 
             # Check if user, student ID, or email is blacklisted in current guild context
             if guild_ctx and hasattr(guild_ctx, "id"):
-                is_bl, bl_reason = await self.db.is_blacklisted(
+                match = await self.db.get_blacklist_match(
                     guild_ctx.id,
                     user_id=user.id,
                     student_id_hash=id_hash,
                     email_hash=email_hash,
                 )
-                if is_bl:
+                if match:
+                    bl_reason = match.get("reason")
+                    target_type = match.get("target_type", "UNKNOWN")
+                    display_mask = match.get("display_mask", "N/A")
                     await self.db.log(
                         "WARNING",
                         "BLACKLIST_ATTEMPT_BLOCKED",
-                        f"{user} (ID: {user.id}) verification blocked due to guild blacklist in '{guild_ctx.name}'. Reason: {bl_reason}",
+                        f"{user} (ID: {user.id}) verification blocked due to guild blacklist in '{guild_ctx.name}'. Type: {target_type}, Mask: {display_mask}, Reason: {bl_reason}",
                         user_id=user.id,
                         guild=guild_ctx,
                     )
+
+                    # Dispatch real-time security alert embed to private #tarveri-log
+                    alert_embed = discord.Embed(
+                        title="🚫 [Security Alert] Blacklisted Verification Blocked",
+                        description=f"A verification attempt was blocked because the target matches an active entry on the **{guild_ctx.name}** blacklist.",
+                        color=discord.Color.red(),
+                        timestamp=datetime.now(get_configured_tz()),
+                    )
+                    user_mention = getattr(user, "mention", f"<@{user.id}>")
+                    alert_embed.add_field(
+                        name="👤 Discord User",
+                        value=f"{user_mention} (`{user}` • ID: `{user.id}`)",
+                        inline=False,
+                    )
+                    alert_embed.add_field(name="🛡️ Blacklist Vector", value=f"`{target_type}`", inline=True)
+                    alert_embed.add_field(name="🔍 Matched Target", value=f"`{display_mask}`", inline=True)
+                    alert_embed.add_field(name="📝 Reason", value=bl_reason or "*No reason specified*", inline=False)
+                    alert_embed.add_field(name="⚡ Action Taken", value="Verification blocked immediately. No roles assigned.", inline=False)
+                    alert_embed.set_footer(text="TARVeri Security Guard • Guild Blacklist")
+
+                    try:
+                        await self.send_admin_security_alert(guild_ctx, alert_embed)
+                    except Exception as alert_exc:
+                        logger.warning(f"Failed sending blacklist verification security alert: {alert_exc}")
+
                     reason_suffix = f" Reason: {bl_reason}" if bl_reason else ""
                     return f"⛔ You are blacklisted from verifying in **{guild_ctx.name}**.{reason_suffix}"
 
@@ -1473,11 +1501,16 @@ class VerificationService:
         bot_pos = getattr(bot_top_role, "position", 0) if bot_top_role else 0
 
         guild_email_required = False
+        guild_email_enforced = False
         if self.db and hasattr(guild, "id"):
             try:
                 guild_email_required = await self.db.is_guild_email_verification_enabled(guild.id)
+                guild_email_enforced = await self.db.is_guild_email_enforcement_enabled(guild.id)
             except Exception as exc:
                 logger.debug("Failed checking guild email policy during reconciliation: %s", exc)
+
+        if not guild_email_enforced and self.settings:
+            guild_email_enforced = getattr(self.settings, "enable_email_role_enforcement", False)
 
         verified_user_ids: set[int] = set()
 
@@ -1521,8 +1554,12 @@ class VerificationService:
                 continue
 
             if guild_email_required and not is_email_verified:
-                # Member is only Fast Verified (Tier 1), but server mandates institutional email (Tier 2).
-                # Strip any existing verified roles in this server.
+                # Member is Fast Verified (Tier 1), but server mandates institutional email (Tier 2).
+                # If retroactive role enforcement is NOT enabled, do NOT strip existing roles (protects members).
+                if not guild_email_enforced:
+                    continue
+
+                # When enforcement is explicitly enabled by admin, strip existing verified roles in this server.
                 roles_to_strip = [
                     r
                     for r in member_roles
@@ -1536,7 +1573,7 @@ class VerificationService:
                     try:
                         await member.remove_roles(
                             *strip_manageable,
-                            reason="TARVeri Self-Healing: Stripped verified roles from non-email-verified member in email-mandated server",
+                            reason="TARVeri Self-Healing: Stripped verified roles from non-email-verified member in email-enforced server",
                         )
                         summary["unauthorized_cleaned"] += len(strip_manageable)
                         await self.db.log(
@@ -2527,3 +2564,110 @@ class VerificationService:
         )
 
         return True, f"✅ Successfully removed [{clean_type}] target from **{guild.name}** blacklist."
+
+    async def get_or_create_tarveri_log_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
+        """
+        Finds or automatically provisions a private #tarveri-log channel visible only to administrators and the bot.
+        """
+        if not guild:
+            return None
+
+        # 1. First search for existing log channel by standard naming conventions
+        target_names = {"tarveri-log", "tarveri_log", "tarveri-logs", "tarveri_logs"}
+        text_channels = getattr(guild, "text_channels", []) or []
+        for ch in text_channels:
+            if getattr(ch, "name", "").lower() in target_names:
+                # Verify bot has view and send permissions
+                bot_member = getattr(guild, "me", None)
+                if bot_member and hasattr(ch, "permissions_for"):
+                    perms = ch.permissions_for(bot_member)
+                    if not (getattr(perms, "view_channel", True) and getattr(perms, "send_messages", True)):
+                        continue
+                return ch
+
+        # 2. Check if bot has permission to create channels
+        bot_member = getattr(guild, "me", None)
+        can_create = False
+        if bot_member:
+            guild_perms = getattr(bot_member, "guild_permissions", None)
+            if guild_perms and (getattr(guild_perms, "manage_channels", False) or getattr(guild_perms, "administrator", False)):
+                can_create = True
+
+        if not can_create or not hasattr(guild, "create_text_channel"):
+            return None
+
+        # 3. Create private #tarveri-log with restricted overwrites
+        try:
+            overwrites: dict[Any, discord.PermissionOverwrite] = {}
+            if hasattr(guild, "default_role") and guild.default_role:
+                overwrites[guild.default_role] = discord.PermissionOverwrite(
+                    view_channel=False,
+                    send_messages=False,
+                )
+            if bot_member:
+                overwrites[bot_member] = discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    embed_links=True,
+                    read_message_history=True,
+                    attach_files=True,
+                )
+
+            # Explicitly grant view access to admin and manage_guild roles (excluding @everyone / default_role)
+            roles = getattr(guild, "roles", []) or []
+            default_r = getattr(guild, "default_role", None)
+            for role in roles:
+                if role == default_r:
+                    continue
+                role_perms = getattr(role, "permissions", None)
+                if role_perms and (getattr(role_perms, "administrator", False) or getattr(role_perms, "manage_guild", False)):
+                    overwrites[role] = discord.PermissionOverwrite(
+                        view_channel=True,
+                        read_message_history=True,
+                        send_messages=False,
+                    )
+
+            new_ch = await guild.create_text_channel(
+                name="tarveri-log",
+                overwrites=overwrites,
+                topic="🔒 TARVeri Bot Security & Audit Log (Admin Only) • Real-time alerts for blacklists and security events.",
+                reason="TARVeri: Auto-created private security alert channel for guild administrators",
+            )
+
+            welcome_embed = discord.Embed(
+                title="🔒 TARVeri Security & Audit Log",
+                description=(
+                    "This private channel is dedicated to **TARVeri security alerts**, blacklisted user interception notices, "
+                    "and automated administrative audit feeds.\n\n"
+                    "• **Access**: Only server administrators and TARVeri have view permissions.\n"
+                    "• **Security**: Real-time alerts are posted here when blacklisted users join or attempt verification."
+                ),
+                color=discord.Color.dark_theme() if hasattr(discord.Color, "dark_theme") else discord.Color.blue(),
+                timestamp=datetime.now(get_configured_tz()),
+            )
+            welcome_embed.set_footer(text="TARVeri Security Guard • Private Admin Feed")
+            try:
+                await new_ch.send(embed=welcome_embed)
+            except Exception as e:
+                logger.debug(f"Could not send welcome embed in new #{new_ch.name}: {e}")
+
+            return new_ch
+        except Exception as exc:
+            logger.warning(f"Failed to auto-create #tarveri-log channel in '{guild.name}': {exc}")
+            return None
+
+    async def send_admin_security_alert(self, guild: discord.Guild, embed: discord.Embed) -> bool:
+        """
+        Dispatches a security alert embed to the guild's private #tarveri-log channel.
+        Returns True if sent successfully, False otherwise.
+        """
+        if not guild:
+            return False
+        try:
+            channel = await self.get_or_create_tarveri_log_channel(guild)
+            if channel and hasattr(channel, "send"):
+                await channel.send(embed=embed)
+                return True
+        except Exception as exc:
+            logger.warning(f"Failed to send admin security alert to #tarveri-log in '{guild.name}': {exc}")
+        return False

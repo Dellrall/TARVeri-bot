@@ -1741,22 +1741,57 @@ class VerificationCog(commands.Cog, name="Verification"):
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member) -> None:
         """Automatically assigns faculty, campus, study level, and alumni roles if member is already verified, else prompts and tags."""
-        # 0. Blacklist guard: ignore blacklisted users
-        is_bl, _ = await self.db.is_blacklisted(member.guild.id, user_id=member.id)
-        if is_bl:
-            return
+        # 0. Blacklist guard: check if user is blacklisted in this guild
+        match = await self.db.get_blacklist_match(member.guild.id, user_id=member.id)
 
         details = await self.db.get_verification_details(member.id)
-        if details:
-            is_bl_hashes, _ = await self.db.is_blacklisted(
+        if not match and details:
+            match = await self.db.get_blacklist_match(
                 member.guild.id,
                 user_id=member.id,
                 student_id_hash=details.get("student_id_hash"),
                 email_hash=details.get("student_email_hash"),
             )
-            if is_bl_hashes:
-                return
 
+        if match:
+            bl_reason = match.get("reason")
+            target_type = match.get("target_type", "USER")
+            display_mask = match.get("display_mask", str(member.id))
+
+            await self.db.log(
+                "WARNING",
+                "BLACKLIST_MEMBER_JOINED",
+                f"Blacklisted member {member} (ID: {member.id}) joined guild '{member.guild.name}'. Type: {target_type}, Mask: {display_mask}, Reason: {bl_reason}",
+                guild=member.guild,
+                user_id=member.id,
+            )
+
+            # Dispatch real-time security alert embed to private #tarveri-log
+            alert_embed = discord.Embed(
+                title="🚨 [Security Alert] Blacklisted User Joined",
+                description=f"A blacklisted user just joined **{member.guild.name}**.",
+                color=discord.Color.dark_red(),
+                timestamp=datetime.now(get_configured_tz()),
+            )
+            alert_embed.add_field(
+                name="👤 Discord User",
+                value=f"{member.mention} (`{member}` • ID: `{member.id}`)",
+                inline=False,
+            )
+            alert_embed.add_field(name="🛡️ Blacklist Vector", value=f"`{target_type}`", inline=True)
+            alert_embed.add_field(name="🔍 Matched Target", value=f"`{display_mask}`", inline=True)
+            alert_embed.add_field(name="📝 Reason", value=bl_reason or "*No reason specified*", inline=False)
+            alert_embed.add_field(name="⚡ Action Taken", value="Auto-role assignment prevented. Access restricted.", inline=False)
+            alert_embed.set_footer(text="TARVeri Security Guard • Guild Blacklist")
+
+            try:
+                await self.service.send_admin_security_alert(member.guild, alert_embed)
+            except Exception as alert_exc:
+                logger.warning(f"Failed sending blacklist member join alert: {alert_exc}")
+
+            return
+
+        if details:
             is_email_verified = bool(details.get("student_email_hash"))
             guild_email_required = await self.db.is_guild_email_verification_enabled(member.guild.id)
 

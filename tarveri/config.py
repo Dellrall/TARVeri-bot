@@ -381,6 +381,7 @@ class Settings:
     graduation_check_interval_hours: int = 24
     graduation_prompt_cooldown_days: int = 7
     enable_email_verification: bool = False
+    enable_email_role_enforcement: bool = False
     email_allowed_domains: tuple[str, ...] = ("student.tarc.edu.my", "tarc.edu.my")
     email_encryption_key: str = ""
     smtp_host: str = "mail.smtp2go.com"
@@ -485,6 +486,7 @@ class Settings:
         graduation_prompt_cooldown_days = _env_int("TARVERI_GRADUATION_PROMPT_COOLDOWN_DAYS", "GRADUATION_PROMPT_COOLDOWN_DAYS", default=7)
 
         enable_email_verification = _env_bool("TARVERI_EMAIL_VERIFICATION_ENABLED", "EMAIL_VERIFICATION_ENABLED", "ENABLE_EMAIL_VERIFICATION", default=False)
+        enable_email_role_enforcement = _env_bool("TARVERI_ENABLE_EMAIL_ROLE_ENFORCEMENT", "ENABLE_EMAIL_ROLE_ENFORCEMENT", "TARVERI_EMAIL_ROLE_ENFORCEMENT", default=False)
         email_domains_raw = _env_str("TARVERI_EMAIL_ALLOWED_DOMAINS", "EMAIL_ALLOWED_DOMAINS", default="student.tarc.edu.my,tarc.edu.my")
         email_allowed_domains = tuple(
             d.strip().lower() for d in email_domains_raw.split(",") if d.strip()
@@ -561,6 +563,7 @@ class Settings:
             graduation_check_interval_hours=graduation_check_interval_hours,
             graduation_prompt_cooldown_days=graduation_prompt_cooldown_days,
             enable_email_verification=enable_email_verification,
+            enable_email_role_enforcement=enable_email_role_enforcement,
             email_allowed_domains=email_allowed_domains,
             email_encryption_key=email_encryption_key,
             smtp_host=smtp_host,

@@ -426,6 +426,10 @@ class AdminDashboardView(ui.View):
             btn_toggle_email.callback = self._on_toggle_email_verification_clicked
             self.add_item(btn_toggle_email)
 
+            btn_toggle_email_enforce = ui.Button(label="Toggle Role Enforcement", style=discord.ButtonStyle.secondary, emoji="🛡️")
+            btn_toggle_email_enforce.callback = self._on_toggle_email_enforcement_clicked
+            self.add_item(btn_toggle_email_enforce)
+
             btn_reset_auto = ui.Button(label="Reset to Auto-Detect", style=discord.ButtonStyle.danger, emoji="🔄")
             btn_reset_auto.callback = self._on_reset_config_clicked
             self.add_item(btn_reset_auto)
@@ -576,6 +580,7 @@ class AdminDashboardView(ui.View):
         r_id = settings[3] if settings and len(settings) > 3 else None
         adm_role = settings[4] if settings and len(settings) > 4 and settings[4] else f"Auto-detect ({self.cog.admin_role_name})"
         is_email_opted_in = bool(settings[5]) if settings and len(settings) > 5 else False
+        is_email_enforced = bool(settings[6]) if settings and len(settings) > 6 else False
 
         w_ch = guild.get_channel(w_id) if w_id else None
         h_ch = guild.get_channel(h_id) if h_id else None
@@ -600,6 +605,8 @@ class AdminDashboardView(ui.View):
         embed.add_field(name="🛡️ Admin / Reviewer Role", value=f"`{adm_role}`", inline=True)
         email_mode_str = "🔒 **Mandatory (Opted In)**" if is_email_opted_in else "⚪ **Optional (Default: Opted Out)**"
         embed.add_field(name="📧 Email Verification Policy", value=email_mode_str, inline=True)
+        enforce_mode_str = "🔴 **Enforced (Retroactive Stripping)**" if is_email_enforced else "🟢 **Disabled (Existing Roles Preserved)**"
+        embed.add_field(name="🛡️ Email Role Enforcement", value=enforce_mode_str, inline=True)
 
         embed.set_footer(text="Use the buttons below to modify channels, roles, or reset to defaults.")
         return embed
@@ -891,6 +898,27 @@ class AdminDashboardView(ui.View):
         embed.description = f"📧 **Email verification requirement updated to {status_word}!**"
         await self.update_message(interaction, embed=embed)
 
+    async def _on_toggle_email_enforcement_clicked(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Server context required.", ephemeral=True)
+            return
+        await interaction.response.defer()
+        curr = await self.cog.db.is_guild_email_enforcement_enabled(interaction.guild.id)
+        new_val = not curr
+        await self.cog.db.set_guild_email_enforcement(interaction.guild.id, new_val)
+        status_word = "🔴 **ENFORCED (Retroactive Role Stripping Active)**" if new_val else "🟢 **DISABLED (Existing Roles Preserved)**"
+        await self.cog.db.log(
+            "INFO",
+            "GUILD_EMAIL_ENFORCEMENT_TOGGLED",
+            f"Email role enforcement set to {new_val} by admin {interaction.user}",
+            guild=interaction.guild,
+            user_id=interaction.user.id,
+        )
+        self._rebuild_components()
+        embed = await self.build_config_embed(interaction.guild)
+        embed.description = f"🛡️ **Email role enforcement policy updated to {status_word}!**"
+        await self.update_message(interaction, embed=embed)
+
     async def _on_reset_config_clicked(self, interaction: discord.Interaction) -> None:
         if not interaction.guild:
             return
@@ -901,6 +929,7 @@ class AdminDashboardView(ui.View):
         await self.cog.db.set_guild_guest_role(interaction.guild.id, "Guest")
         await self.cog.db.set_guild_admin_role(interaction.guild.id, None)
         await self.cog.db.set_guild_email_verification(interaction.guild.id, False)
+        await self.cog.db.set_guild_email_enforcement(interaction.guild.id, False)
 
         verif_cog = self.cog.bot.get_cog("Verification")
         if verif_cog and hasattr(verif_cog, "invalidate_guild_cache"):

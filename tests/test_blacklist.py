@@ -305,3 +305,104 @@ async def test_admin_cog_blacklist_commands(in_memory_db, secret_key):
     await cog.blacklist_clear.callback(cog, interaction)
     interaction.followup.send.assert_called_once()
     assert "Cleared **2** blacklist entries" in interaction.followup.send.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_tarveri_log_channel_creation_and_alerts(in_memory_db, secret_key):
+    bot = MagicMock(spec=discord.Client)
+    rate_limiter = RateLimiter(max_attempts=5, window_seconds=60)
+    service = VerificationService(bot=bot, db=in_memory_db, secret=secret_key, rate_limiter=rate_limiter)
+
+    guild = MagicMock(spec=discord.Guild)
+    guild.id = 888888888888888888
+    guild.name = "Alerts Test Guild"
+    guild.default_role = MagicMock(spec=discord.Role)
+    guild.text_channels = []
+
+    admin_role = MagicMock(spec=discord.Role)
+    admin_role.permissions = MagicMock(administrator=True, manage_guild=False)
+    guild.roles = [guild.default_role, admin_role]
+
+    log_channel = MagicMock(spec=discord.TextChannel)
+    log_channel.name = "tarveri-log"
+    log_channel.send = AsyncMock()
+
+    guild.me = MagicMock(spec=discord.Member)
+    guild.me.guild_permissions = MagicMock(administrator=True, manage_channels=True)
+    guild.create_text_channel = AsyncMock(return_value=log_channel)
+
+    # 1. First get_or_create should auto-create the channel
+    ch = await service.get_or_create_tarveri_log_channel(guild)
+    assert ch == log_channel
+    guild.create_text_channel.assert_called_once()
+    args, kwargs = guild.create_text_channel.call_args
+    assert kwargs["name"] == "tarveri-log"
+    overwrites = kwargs["overwrites"]
+    # Check default_role overwrites hide channel
+    assert overwrites[guild.default_role].view_channel is False
+    # Check admin role overwrites allow viewing
+    assert overwrites[admin_role].view_channel is True
+
+    # 2. Subsequent lookup should find existing channel in text_channels
+    guild.text_channels = [log_channel]
+    log_channel.permissions_for = MagicMock(return_value=MagicMock(view_channel=True, send_messages=True))
+    guild.create_text_channel.reset_mock()
+    ch_existing = await service.get_or_create_tarveri_log_channel(guild)
+    assert ch_existing == log_channel
+    guild.create_text_channel.assert_not_called()
+
+    # 3. Test send_admin_security_alert
+    alert_embed = discord.Embed(title="Test Alert", description="Security alert description")
+    sent = await service.send_admin_security_alert(guild, alert_embed)
+    assert sent is True
+    log_channel.send.assert_called_with(embed=alert_embed)
+
+
+@pytest.mark.asyncio
+async def test_blacklist_member_join_alert(in_memory_db, secret_key):
+    from tarveri.cogs.verification_cog import VerificationCog
+
+    bot = MagicMock(spec=discord.Client)
+    rate_limiter = RateLimiter(max_attempts=5, window_seconds=60)
+    service = VerificationService(bot=bot, db=in_memory_db, secret=secret_key, rate_limiter=rate_limiter)
+    cog = VerificationCog(bot=bot, db=in_memory_db, service=service, rate_limiter=rate_limiter)
+
+    guild = MagicMock(spec=discord.Guild)
+    guild.id = 999111222333444555
+    guild.name = "Join Alert Guild"
+    guild.default_role = MagicMock(spec=discord.Role)
+    guild.roles = [guild.default_role]
+
+    log_channel = MagicMock(spec=discord.TextChannel)
+    log_channel.name = "tarveri-log"
+    log_channel.send = AsyncMock()
+    log_channel.permissions_for = MagicMock(return_value=MagicMock(view_channel=True, send_messages=True))
+    guild.text_channels = [log_channel]
+    guild.me = MagicMock(spec=discord.Member)
+    guild.me.guild_permissions = MagicMock(administrator=True)
+
+    member = MagicMock(spec=discord.Member)
+    member.id = 777111222
+    member.name = "BlacklistedJoiner"
+    member.mention = "<@777111222>"
+    member.guild = guild
+    member.roles = []
+
+    # Blacklist member
+    await in_memory_db.add_to_blacklist(
+        guild_id=guild.id,
+        target_type="USER",
+        target_value=str(member.id),
+        display_mask=f"User {member.id}",
+        reason="Server raider",
+    )
+
+    # Member joins
+    await cog.on_member_join(member)
+
+    # Check that alert embed was sent to #tarveri-log
+    log_channel.send.assert_called_once()
+    embed = log_channel.send.call_args[1]["embed"]
+    assert "Blacklisted User Joined" in embed.title
+    assert "Server raider" in [f.value for f in embed.fields if f.name == "📝 Reason"][0]
+

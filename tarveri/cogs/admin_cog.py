@@ -680,6 +680,43 @@ class AdminCog(commands.Cog, name="Admin"):
         )
         schedule_ttl_delete(interaction, delay=60.0)
 
+    @admin_group.command(
+        name="email_enforcement",
+        description="Toggle retroactive role stripping for non-email-verified members during self-healing.",
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(
+        enabled="True to retroactively strip roles from non-email-verified members, False to preserve existing roles (Default).",
+    )
+    async def email_enforcement(self, interaction: discord.Interaction, enabled: bool) -> None:
+        """Sets the retroactive email role enforcement toggle for the server."""
+        if not self._check_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this command.", ephemeral=True
+            )
+            schedule_ttl_delete(interaction, delay=60.0)
+            return
+
+        if not interaction.guild:
+            await interaction.response.send_message("❌ This command must be used within a server.", ephemeral=True)
+            return
+
+        await self.db.set_guild_email_enforcement(interaction.guild.id, enabled)
+        await self.db.log(
+            "INFO",
+            "CONFIG_EMAIL_ENFORCEMENT",
+            f"Email role enforcement set to {enabled} by {interaction.user}",
+            guild=interaction.guild,
+            user_id=interaction.user.id,
+        )
+
+        mode_str = "🔴 **ENFORCED (Retroactive role stripping active during self-healing)**" if enabled else "🟢 **DISABLED (Existing verified roles are safely preserved)**"
+        await interaction.response.send_message(
+            f"✅ Email role enforcement for **{interaction.guild.name}** is now {mode_str}.",
+            ephemeral=True,
+        )
+        schedule_ttl_delete(interaction, delay=60.0)
+
     # ==========================================
     # 🚫 5b. Per-Server Blacklist Management
     # ==========================================
