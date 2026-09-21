@@ -17,13 +17,13 @@ Student-verifier/
 │   ├── __init__.py               # Top-level exports and versioning
 │   ├── __main__.py               # python -m tarveri entrypoint
 │   ├── bot.py                    # TARVeriBot lifecycle, persistent views, startup self-healing
-│   ├── config.py                 # Settings, faculty mappings, colors, HMAC hashing, validation, sliding century windowing
-│   ├── database.py               # Async SQLite layer (WAL mode, PRAGMAs, migrations, backup rotation, legacy backfill)
+│   ├── config.py                 # Settings, faculty mappings, programme code extraction, NDR bounce detection, HMAC hashing
+│   ├── database.py               # Async SQLite layer (WAL mode, PRAGMAs, migrations, bounced_emails table, legacy backfill)
 │   ├── rate_limiter.py           # Monotonic sliding-window rate limiting
 │   ├── utils.py                  # Ticket formatting (#A0001), TTL schedulers, timestamp parsers
 │   ├── services/
-│   │   ├── verification_service.py      # Student verification logic, role auto-creation, reconciliation, academic transition
-│   │   ├── email_service.py             # Institutional student email OTP generator, dual SMTP relay, and Fernet authenticated encryption
+│   │   ├── verification_service.py      # Student verification logic, role auto-creation, reconciliation, role recovery, mass action guards
+│   │   ├── email_service.py             # Institutional student email OTP generator, dual SMTP relay, NDR bounce detection, and Fernet authenticated encryption
 │   │   ├── graduation_watchdog_service.py # Periodic graduation & card expiry watchdog daemon
 │   │   ├── card_service.py              # Digital campus card rendering, Pillow glassmorphism, badge system
 │   │   ├── guest_service.py             # Referral codes, double verification, batch staff tagging, escalation
@@ -35,11 +35,11 @@ Student-verifier/
 │       ├── card_cog.py           # Campus card slash (/card) and user context menu apps
 │       ├── guest_cog.py          # Guest gateway panel, private review thread views, vouchers
 │       ├── admin_dashboard.py    # Rich interactive admin control center UI with category dropdowns
-│       └── admin_cog.py          # Admin tools (/stats, /diagnose, /audit, /unverify, /backup, /logs, /backfill_roles)
+│       └── admin_cog.py          # Admin tools (/stats, /diagnose, /audit, /unverify, /backup, /logs, /backfill_roles, /restore_roles)
 ├── scripts/
 │   ├── update.sh                 # Safe upstream git updater with backup and test preflight
 │   └── show_servers.py           # CLI database inspector for server settings and metrics
-└── tests/                        # 170 unit & integration tests covering all modules with 0 warnings
+└── tests/                        # 235 unit & integration tests covering all modules with 0 warnings
 ```
 
 ---
@@ -200,6 +200,28 @@ flowchart TD
   - Servers can mandate email verification per-guild (`/admin email_verification enabled:True|False` or via the interactive Admin Dashboard toggle).
   - **`TARVERI_EMAIL_RESTRICT_SMTP_USAGE` Feature Flag (Default: `True`)**: Restricts SMTP email dispatch to opted-in servers, preventing free-tier quota exhaustion on opted-out servers while still encrypting student emails at rest.
 
+### 17. Programme Code Extraction & Multi-Tier Role Recovery Engine
+- **Programme Code Decomposition (`StudentIdInfo`)**:
+  - Extracts the exact 3-letter programme code (e.g. `"WMR"` from `24WMR12331`, `"PMR"` from `23PMR12345`, `"WAD"` from `25WAD99999`) during ID parsing.
+  - Persists `programme_code` directly in SQLite `verifications` table with automated schema migration and legacy backfill.
+- **Dynamic Multi-Tier Role Resolvers**:
+  - `resolve_faculty_role()`: Resolves official faculty names (e.g. `FOCS`, `FAFB`, `FOAS`, `FOBE`, `FCCI`, `FSSH`, `FOET`, `CPUS`).
+  - `resolve_campus_role()`: Resolves official campus names (`TARUMT KL Main Campus`, `TARUMT Penang Campus`, etc.).
+  - `resolve_study_level_role()`: Resolves official study level names (`Bachelor's Degree`, `Diploma`, `Foundation`, `Postgraduate`).
+- **Targeted Role Recovery (`/admin restore_roles [user]`)**:
+  - Enables administrators to safely restore lost or stripped student roles (Faculty, Campus, Study Level, Alumni) for past verified users.
+  - **Zero Email-Gating Lockout**: Re-verification and role recovery for previously verified students (`is_past_verified`) do not get blocked by mandatory email OTP gating if institutional mailboxes have expired post-graduation or if SMTP delivery is disabled.
+
+### 18. High-Impact Mass Action Safety Guard & Approval Quorum
+- **Bulk Operation Interception (`TARVERI_MASS_REVOCATION_THRESHOLD`)**:
+  - Automatically intercepts any automated or administrative batch operation that affects $\ge 5$ users simultaneously (role revocations, batch unverifications, mass reassignments).
+- **Pending Mass Action Staging (`PendingMassAction`)**:
+  - Halts direct destructive execution and stages the action payload in an in-memory queue with an expiration TTL (15 minutes).
+- **Two-Step Interactive Discord Quorum (`MassActionApprovalView`)**:
+  - Generates a high-visibility warning embed in the admin channel detailing the affected user count, target roles, reason, and safety impact.
+  - Presents interactive `[✅ Approve & Execute]` and `[❌ Cancel & Reject]` confirmation buttons.
+  - Requires explicit administrator quorum approval before any bulk role modifications are applied to the server population.
+
 ---
 
 ## 🎟️ Alphanumeric Ticket Sequencing, Multi-Action Buttons & Smart Escalation
@@ -240,8 +262,9 @@ flowchart TD
 - `/admin email_verification [enabled]` — Enable or disable mandatory institutional email OTP verification for the current server.
 - `/admin email_stats` — View server-level and global institutional email verification rates and opt-in statistics.
 - `/admin diagnose` — Run self-healing diagnostics, check role hierarchy, restore SRC roles, and reconcile missing member/alumni roles.
-- `/admin backfill_roles [default_campus] [default_level] [all_servers]` — Batch sync and assign missing branch campus and study level roles to all verified members.
-- `/admin unverify @user [reason]` — Unlink student ID and strip faculty roles across mutual servers.
+- `/admin backfill_roles [default_campus] [default_level] [all_servers]` — Batch sync and assign missing branch campus and study level roles to all verified members (intercepted by mass action guard if $\ge 5$ members affected).
+- `/admin restore_roles [user]` — Safe role recovery tool for past verified users; restores missing faculty, campus, study level, and alumni roles without email gating lockouts.
+- `/admin unverify @user [reason]` — Unlink student ID and strip faculty roles across mutual servers (subject to mass-action confirmation if executed in bulk).
 - `/admin alumni_revoke @user [reason]` — Revoke Alumni status and strip `TARUMT Alumni` role across mutual servers.
 - `/admin set_channel [type] [channel]` — Configure or reset welcome, help, or guest review channels in one command.
 - `/admin set_role [type] [role/name]` — Configure or reset custom guest role name or reviewer/admin role.
@@ -635,6 +658,20 @@ echo "🎉 Zero-Downtime Deployment Successfully Completed! [$TARGET_SLOT] is li
   - Automatically intercepts verification requests where the student ID's card expiry is dynamically in the past (`iso_expiry < today_iso`).
   - Presents interactive options to verify directly as graduated alumni without email OTP (since university accounts are deactivated post-graduation), send OTP anyway, or enter a new student ID.
 
+### 6. SMTP Non-Delivery Report (NDR) Bounce Detection & Fast-Circuit Rejection
+- **Error Code Classification (`is_smtp_bounce_error`)**:
+  - Automatically inspects SMTP server response codes upon dispatch failure.
+  - Detects permanent recipient delivery failures, including `550 User Unknown / Mailbox Not Found`, `551 User not local`, `552 Exceeded storage allocation`, `553 Mailbox name not allowed`, `554 Transaction failed`, and standard `5.1.1` non-delivery reports (NDR).
+- **Persistent Bounced Mailbox Registry (`bounced_emails` table)**:
+  - Records bounced addresses with HMAC-SHA256 blind indexing (`email_hash`), privacy-masked display email (`email_masked`), SMTP error reason, and Unix timestamp.
+- **Zero-Network Pre-Flight Interception**:
+  - Subsequent verification attempts targeting known bounced addresses are caught by `Database.is_email_bounced()` during pre-flight checks, rejecting the OTP request immediately with a clear user prompt and **zero SMTP relay network calls**, safeguarding free-tier quotas and relay reputation.
+
+### 7. Past-Verified Email Policy Exemption & Safe Re-verification
+- **Exemption for Existing Verified Records (`is_past_verified`)**:
+  - Students with existing records in the database (`verifications` table) are exempt from strict email-first gating during role transitions, role recovery, or guild re-verification when email enforcement is disabled (`enable_email_role_enforcement=False`).
+  - Ensures legitimate students whose university mailboxes have expired post-graduation or during intake transitions do not suffer catastrophic role loss or permanent lockouts.
+
 ---
 
 ## 🎛️ Feature Flags & Operational Toggles Specification
@@ -646,6 +683,8 @@ TARVeri employs a layered configuration system combining global environment togg
 | Environment Variable | Dataclass Field | Default | Subsystem | Description & Behavioral Impact |
 | :--- | :--- | :---: | :--- | :--- |
 | `TARVERI_EMAIL_VERIFICATION_ENABLED` | `enable_email_verification` | `false` | Auth / Security | **False**: Instant verification via Modal/Slash ID input.<br>**True**: Enforces `@student.tarc.edu.my` OTP challenge with Fernet authenticated encryption storage. |
+| `TARVERI_ENABLE_EMAIL_ROLE_ENFORCEMENT` | `enable_email_role_enforcement` | `false` | Auth / Security | **False**: Past-verified students retain access and role restoration without email gating.<br>**True**: Strictly enforces email OTP verification across all role assignments and syncs. |
+| `TARVERI_MASS_REVOCATION_THRESHOLD` | `mass_revocation_threshold` | `5` | Safety / Guardrails | Threshold count of affected users ($\ge 5$) that halts direct execution and triggers interactive 2-step mass-action admin approval quorum. |
 | `TARVERI_CIRCUIT_BREAKER_FAIL_MAX` | `circuit_breaker_fail_max` | `3` | Email / Resiliency | Number of consecutive Primary SMTP errors before tripping circuit breaker to OPEN. |
 | `TARVERI_CIRCUIT_BREAKER_RESET_TIMEOUT` | `circuit_breaker_reset_timeout` | `300` | Email / Resiliency | Seconds to keep circuit breaker OPEN before probing Primary SMTP recovery in HALF_OPEN. |
 | `TARVERI_SENTRY_DSN` | `sentry_dsn` | `""` | Observability | Optional Sentry DSN for real-time error tracking and Discord interaction crash reporting. |
@@ -704,6 +743,20 @@ TARVERI_TELEGRAM_THREAD_ID=              # Optional: Supergroup topic ID
 - ⚠️ **WARNING**: Primary SMTP quota/rate-limit hit; failover routed to fallback direct mail server.
 - 🎟️ **INFO**: New guest verification review ticket opened or staff ping requested.
 - 🔄 **INFO**: New Git release / upstream commit available for deployment.
+
+---
+
+## 🚨 Operational Incidents & Post-Mortems Registry
+
+For full root cause analyses, recovery timelines, and remediation action items, consult [`docs/incidents-and-postmortems.md`](file:///mnt/backup/git/Student-verifier/docs/incidents-and-postmortems.md).
+
+### Incident Log Summary
+
+| Incident ID | Date | Impact Severity | Summary & Root Cause | Engineered Resolution |
+| :--- | :--- | :--- | :--- | :--- |
+| **INC-2026-09A** | 2026-09-21 | **High** (Community Impact) | Automated/uncontrolled mass role revocation stripped roles from active members without admin authorization. | **Mass Action Guard (`PendingMassAction`)**: Any action affecting $\ge 5$ users (`TARVERI_MASS_REVOCATION_THRESHOLD`) requires interactive 2-step Discord admin quorum approval. |
+| **INC-2026-09B** | 2026-09-21 | **High** (Data Integrity) | Programme code was omitted from database schema, causing missing multi-tier role mapping and role recovery failure for past verified members due to email gating. | **Programme Code Storage & Recovery**: Stored `programme_code` in SQLite, built multi-tier resolvers (`resolve_*_role()`), added `/admin restore_roles`, and exempted past-verified users (`is_past_verified`) from email lockouts. |
+| **INC-2026-09C** | 2026-09-21 | **Medium** (Resource Drain) | Repeated OTP dispatches to non-existent student email addresses wasted SMTP quota and risked relay provider reputation. | **SMTP Bounce Detection**: Classified 5xx/5.1.1 SMTP errors via `is_smtp_bounce_error()`, recorded in `bounced_emails` table with blind indexing, and enforced zero-network pre-flight OTP rejection. |
 
 ---
 
