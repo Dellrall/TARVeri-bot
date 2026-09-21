@@ -21,6 +21,7 @@ from tarveri.config import (
     decrypt_email,
     encrypt_email,
     hash_email,
+    is_smtp_bounce_error,
     is_valid_student_email,
     mask_email,
 )
@@ -114,11 +115,13 @@ class EmailService:
     - Encrypts/decrypts student emails at rest with AES-256 (Fernet)
     """
 
-    def __init__(self, settings: Settings, mock_smtp: bool = False) -> None:
+    def __init__(self, settings: Settings, db: Any = None, mock_smtp: bool = False) -> None:
         self.settings = settings
+        self.db = db
         self.mock_smtp = mock_smtp
         self._pending_otps: dict[int, PendingOtp] = {}
         self._lock = asyncio.Lock()
+        self._last_bounce_info: str | None = None
         # Test helper hook for inspecting sent emails during test runs
         self.sent_emails: list[dict[str, Any]] = []
         self._primary_breaker = AsyncCircuitBreaker(
@@ -179,6 +182,22 @@ class EmailService:
                 "ttl_seconds": 0,
             }
 
+        # Check if this email is already recorded as bounced/undeliverable
+        if self.db and hasattr(self.db, "is_email_bounced"):
+            try:
+                email_hash = self.hash_student_email(email_clean)
+                if await self.db.is_email_bounced(email_hash):
+                    return {
+                        "success": False,
+                        "error": (
+                            f"⚠️ The email `{mask_email(email_clean)}` was previously rejected/bounced by the mail server. "
+                            "Please ensure your student mailbox is active and receiving mail, or contact server staff."
+                        ),
+                        "ttl_seconds": 0,
+                    }
+            except Exception as e:
+                logger.debug(f"Bounced email check error: {e}")
+
         now = time.monotonic()
         async with self._lock:
             self._prune_expired_otps(now)
@@ -222,6 +241,7 @@ class EmailService:
             self._pending_otps[user_id] = pending
 
         # Send email in background thread to avoid blocking asyncio event loop
+        self._last_bounce_info = None
         send_success = await self._send_otp_email_async(
             to_email=email_clean,
             otp_code=otp_code,
@@ -232,6 +252,12 @@ class EmailService:
         if not send_success:
             async with self._lock:
                 self._pending_otps.pop(user_id, None)
+            if self._last_bounce_info:
+                return {
+                    "success": False,
+                    "error": f"⚠️ Email delivery rejected by mail server ({self._last_bounce_info}). Please check that your student email address is correct and active.",
+                    "ttl_seconds": 0,
+                }
             return {
                 "success": False,
                 "error": "Failed to transmit verification email via SMTP server. Please notify server staff.",
@@ -416,6 +442,34 @@ class EmailService:
         except Exception as e:
             return False, str(e)
 
+    async def _handle_bounce_detected(
+        self, to_email: str, bounce_code: str | None, bounce_reason: str
+    ) -> None:
+        """Handles detection of a bounced email by logging and storing in the database."""
+        self._last_bounce_info = bounce_reason
+        logger.warning(
+            f"🚫 SMTP bounce detected for {mask_email(to_email)} (Code: {bounce_code}, Reason: {bounce_reason})"
+        )
+        if self.db and hasattr(self.db, "record_bounced_email"):
+            e_hash = self.hash_student_email(to_email)
+            e_enc = self.encrypt_student_email(to_email)
+            try:
+                b_code_int = int(bounce_code) if bounce_code and bounce_code.isdigit() else 550
+                await self.db.record_bounced_email(
+                    email_hash=e_hash,
+                    email_encrypted=e_enc,
+                    bounce_code=b_code_int,
+                    bounce_reason=bounce_reason,
+                )
+                if hasattr(self.db, "log"):
+                    await self.db.log(
+                        level="WARNING",
+                        event_type="EMAIL_BOUNCE_DETECTED",
+                        message=f"Bounced email recorded: {mask_email(to_email)} (Code: {bounce_code}, Reason: {bounce_reason})",
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to record email bounce for {mask_email(to_email)}: {e}")
+
     async def _send_smtp_async(
         self,
         to_email: str,
@@ -469,6 +523,12 @@ class EmailService:
                 )
                 await self._primary_breaker.record_failure()
 
+        # Check for bounce on primary failure
+        if primary_err:
+            is_bounce, b_code, b_reason = is_smtp_bounce_error(primary_err)
+            if is_bounce:
+                await self._handle_bounce_detected(to_email, b_code, b_reason)
+
         # 2. Check if Fallback Direct SMTP Server is configured
         fallback_host = self.settings.smtp_fallback_host.strip()
         if not fallback_host:
@@ -505,6 +565,12 @@ class EmailService:
                 f"Fallback direct SMTP delivery SUCCEEDED to {mask_email(to_email)} via {fallback_host}:{self.settings.smtp_fallback_port}"
             )
             return True
+
+        # Check for bounce on fallback failure
+        if fallback_err:
+            is_bounce, b_code, b_reason = is_smtp_bounce_error(fallback_err)
+            if is_bounce:
+                await self._handle_bounce_detected(to_email, b_code, b_reason)
 
         logger.error(
             f"Fallback SMTP delivery also failed to {mask_email(to_email)} via {fallback_host}:{self.settings.smtp_fallback_port}: {fallback_err}"

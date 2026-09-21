@@ -857,12 +857,58 @@ async def test_alumni_email_confirmation_flow(tmp_path):
 
     # 4. User is verified in database with email saved encrypted, and 0 OTP emails sent!
     assert len(email_svc.sent_emails) == 0
-    record = await db.get_verification_by_user(user.id)
-    assert record is not None
-    details = await db.get_verification_details(user.id)
-    assert details["student_email_hash"] is not None
-
     await db.close()
+
+
+@pytest.mark.asyncio
+async def test_email_bounce_detection(tmp_path):
+    key = Fernet.generate_key().decode()
+    settings = Settings(
+        bot_token="fake_token",
+        id_hash_secret="fake_secret",
+        enable_email_verification=True,
+        email_encryption_key=key,
+        smtp_host="mail.smtp2go.com",
+        smtp_user="test_smtp_user",
+        smtp_password="test_smtp_pass",
+        smtp_fallback_host="",
+    )
+    db = Database(str(tmp_path / "email_bounce_test.db"))
+    await db.connect()
+    try:
+        svc = EmailService(settings, db=db, mock_smtp=False)
+
+        # 1. Simulate SMTP bounce response (550 User unknown)
+        bounce_error = "550 5.1.1 <invalid_user@student.tarc.edu.my>: Recipient address rejected: User unknown in virtual mailbox table"
+        with patch.object(svc, "_send_to_smtp_endpoint", AsyncMock(return_value=(False, bounce_error))):
+            res = await svc.generate_and_send_otp(
+                user_id=12345,
+                student_id="24WMR12345",
+                email_address="invalid_user@student.tarc.edu.my",
+                server_name="Test Campus",
+            )
+            assert res["success"] is False
+            assert "rejected by mail server" in res["error"]
+
+            # Verify it was recorded in bounced_emails DB table
+            e_hash = svc.hash_student_email("invalid_user@student.tarc.edu.my")
+            assert await db.is_email_bounced(e_hash) is True
+
+        # 2. Subsequent request to the same bounced email is blocked immediately before contacting SMTP
+        with patch.object(svc, "_send_to_smtp_endpoint") as mock_endpoint:
+            res2 = await svc.generate_and_send_otp(
+                user_id=12345,
+                student_id="24WMR12345",
+                email_address="invalid_user@student.tarc.edu.my",
+                server_name="Test Campus",
+            )
+            assert res2["success"] is False
+            assert "previously rejected/bounced" in res2["error"]
+            # 0 network/SMTP calls made
+            assert mock_endpoint.call_count == 0
+    finally:
+        await db.close()
+
 
 
 

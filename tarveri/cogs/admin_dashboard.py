@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import discord
 from discord import ui
 
-from tarveri.config import FACULTY_ROLES
+from tarveri.config import FACULTY_ROLES, resolve_faculty_role
 from tarveri.services.log_service import (
     archive_old_logs,
     list_daily_logs,
@@ -553,7 +553,7 @@ class AdminDashboardView(ui.View):
         if faculty_counts:
             breakdown_lines = []
             for f_code, count in faculty_counts:
-                faculty_name = FACULTY_ROLES.get(f_code, f"Code {f_code}")
+                faculty_name = resolve_faculty_role(f_code) or FACULTY_ROLES.get(f_code, f"Code {f_code}")
                 percentage = (count / total * 100) if total > 0 else 0
                 breakdown_lines.append(f"• **{faculty_name}** (`{f_code}`): {count} ({percentage:.1f}%)")
             embed.add_field(name="Faculty Distribution", value="\n".join(breakdown_lines), inline=False)

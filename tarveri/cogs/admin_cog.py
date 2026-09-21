@@ -23,6 +23,9 @@ from tarveri.config import (
     STUDY_LEVEL_ROLE_NAMES,
     STUDY_LEVEL_ROLES,
     get_configured_tz,
+    resolve_campus_role,
+    resolve_faculty_role,
+    resolve_study_level_role,
 )
 from tarveri.database import Database
 from tarveri.rate_limiter import RateLimiter
@@ -1058,6 +1061,127 @@ class AdminCog(commands.Cog, name="Admin"):
         )
 
         await interaction.followup.send(embed=embed, ephemeral=True)
+        schedule_ttl_delete(interaction, delay=90.0)
+
+    @admin_group.command(
+        name="restore_roles",
+        description="Immediately restore and recover missing verified roles for past verified members.",
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(
+        user="Optional specific member to recover roles for (leave empty to scan and recover entire server)"
+    )
+    async def restore_roles(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member | None = None,
+    ) -> None:
+        """Immediately restores missing verified roles for past verified students."""
+        if not self._check_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this command.", ephemeral=True
+            )
+            schedule_ttl_delete(interaction, delay=60.0)
+            return
+
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Server context required.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        if user:
+            details = await self.db.get_verification_details(user.id)
+            if not details:
+                verif = await self.db.get_verification_by_user(user.id)
+                if not verif:
+                    await interaction.followup.send(
+                        f"⚠️ {user.mention} is not recorded as a verified student in the database.",
+                        ephemeral=True,
+                    )
+                    return
+                faculty_code = verif[1]
+                campus_code = "W"
+                level_code = "R"
+                is_alumni = False
+            else:
+                faculty_code = details.get("faculty_code")
+                campus_code = details.get("campus_code") or "W"
+                level_code = details.get("level_code") or "R"
+                is_alumni = bool(details.get("is_alumni"))
+
+            target_faculty = resolve_faculty_role(faculty_code)
+            target_campus = resolve_campus_role(campus_code)
+            target_level = resolve_study_level_role(level_code)
+
+            if not target_faculty:
+                await interaction.followup.send(
+                    f"❌ Could not resolve faculty role for {user.mention} (stored code: `{faculty_code}`).",
+                    ephemeral=True,
+                )
+                return
+
+            result = await self.service.assign_role_across_guilds(
+                user.id,
+                target_faculty,
+                [interaction.guild],
+                campus_role_name=target_campus,
+                level_role_name=target_level,
+                is_email_verified=bool(details.get("student_email_hash")) if details else False,
+            )
+
+            if is_alumni:
+                try:
+                    await self.service.sync_alumni_role_across_guilds(
+                        user.id, [interaction.guild], reason="TARVeri: Admin role recovery"
+                    )
+                except Exception as exc:
+                    logger.warning("Failed syncing alumni role during restore_roles: %s", exc)
+
+            summary = self.service.format_role_summary(result)
+            await self.db.log(
+                "INFO",
+                "ROLE_RECOVERED_MANUAL",
+                f"Admin {interaction.user} restored roles for {user} (ID: {user.id}) in '{interaction.guild.name}'",
+                guild=interaction.guild,
+                user_id=user.id,
+            )
+            embed = discord.Embed(
+                title=f"✅ Verified Roles Restored for {user.display_name}",
+                description=summary or f"Roles successfully synchronized for {user.mention}.",
+                color=discord.Color.green(),
+                timestamp=datetime.now(get_configured_tz()),
+            )
+            embed.add_field(name="🏛️ Faculty", value=f"`{target_faculty}`", inline=True)
+            embed.add_field(name="🏫 Campus", value=f"`{target_campus}`", inline=True)
+            embed.add_field(name="🎓 Level", value=f"`{target_level}`", inline=True)
+            if is_alumni:
+                embed.add_field(name="🎖️ Alumni", value="`TARUMT Alumni`", inline=True)
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            stats = await self.service.reconcile_verified_members(interaction.guild)
+            alumni_stats = await self.service.reconcile_alumni_members(interaction.guild)
+            embed = discord.Embed(
+                title=f"🔄 Server Role Recovery & Reconciliation — {interaction.guild.name}",
+                description="Completed self-healing recovery scan for past verified members.",
+                color=discord.Color.brand_green(),
+                timestamp=datetime.now(get_configured_tz()),
+            )
+            embed.add_field(name="👥 Members Checked", value=f"**{stats.get('checked', 0)}**", inline=True)
+            embed.add_field(name="✅ Roles Restored", value=f"**{stats.get('restored', 0)}**", inline=True)
+            embed.add_field(name="🎓 Alumni Restored", value=f"**{alumni_stats.get('restored', 0)}**", inline=True)
+            if stats.get("failed", 0) > 0:
+                embed.add_field(name="⚠️ Hierarchy/Blocked", value=f"**{stats.get('failed', 0)}**", inline=True)
+
+            await self.db.log(
+                "INFO",
+                "SERVER_ROLES_RESTORED",
+                f"Admin {interaction.user} triggered full server role recovery: {stats}",
+                guild=interaction.guild,
+                user_id=interaction.user.id,
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
         schedule_ttl_delete(interaction, delay=90.0)
 
     # ==========================================

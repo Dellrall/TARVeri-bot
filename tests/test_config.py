@@ -266,5 +266,51 @@ def test_settings_sentry_and_circuit_breaker(monkeypatch):
     assert settings.circuit_breaker_reset_timeout == 600
 
 
+def test_role_resolvers_and_bounce_patterns():
+    from tarveri.config import (
+        is_smtp_bounce_error,
+        resolve_campus_role,
+        resolve_faculty_role,
+        resolve_study_level_role,
+    )
+
+    # Faculty resolution
+    assert resolve_faculty_role("M") == "FOCS"
+    assert resolve_faculty_role("FOCS") == "FOCS"
+    assert resolve_faculty_role("WM") == "FOCS"
+    assert resolve_faculty_role("WMR") == "FOCS"
+    assert resolve_faculty_role("PK") == "FCCI"
+    assert resolve_faculty_role("PB") == "FAFB"
+    assert resolve_faculty_role("WP") == "CPUS"
+    assert resolve_faculty_role("UNKNOWN") is None
+
+    # Campus resolution
+    assert resolve_campus_role("W") == "KL Main Campus"
+    assert resolve_campus_role("P") == "Penang Branch"
+    assert resolve_campus_role("WM") == "KL Main Campus"
+    assert resolve_campus_role("WMR") == "KL Main Campus"
+    assert resolve_campus_role("KL Main Campus") == "KL Main Campus"
+
+    # Study Level resolution
+    assert resolve_study_level_role("R") == "Degree"
+    assert resolve_study_level_role("D") == "Diploma"
+    assert resolve_study_level_role("WMR") == "Degree"
+    assert resolve_study_level_role("WMD") == "Diploma"
+    assert resolve_study_level_role("Degree") == "Degree"
+
+    # SMTP bounce matching
+    is_bounce, code, _ = is_smtp_bounce_error("550 5.1.1 User unknown")
+    assert is_bounce is True
+    assert code == "550"
+
+    is_bounce2, code2, _ = is_smtp_bounce_error("554 5.7.1 Recipient address rejected")
+    assert is_bounce2 is True
+
+    # Ignored sending quota errors
+    is_bounce3, _, _ = is_smtp_bounce_error("550 Daily sending limit exceeded")
+    assert is_bounce3 is False
+
+
+
 
 

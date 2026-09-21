@@ -787,4 +787,85 @@ async def test_database_pending_mass_actions(tmp_path):
         await db.close()
 
 
+@pytest.mark.asyncio
+async def test_database_programme_code(tmp_path):
+    db_file = str(tmp_path / "programme_code_test.db")
+    db = Database(db_file)
+    await db.connect()
+    try:
+        # Record with programme_code
+        await db.record_verification(
+            discord_user_id=123456,
+            student_id_hash="hash_123456",
+            faculty_code="M",
+            campus_code="W",
+            level_code="R",
+            programme_code="WMR",
+        )
+        details = await db.get_verification_details(123456)
+        assert details is not None
+        assert details["programme_code"] == "WMR"
+        assert details["campus_code"] == "W"
+        assert details["faculty_code"] == "M"
+
+        # Update programme_code
+        await db.update_verification_details(123456, programme_code="WMD")
+        details2 = await db.get_verification_details(123456)
+        assert details2["programme_code"] == "WMD"
+
+        # Test backfill
+        await db.record_verification(
+            discord_user_id=999999,
+            student_id_hash="hash_999999",
+            faculty_code="A",
+            campus_code="W",
+            level_code="D",
+            programme_code=None,
+        )
+        backfilled = await db.backfill_legacy_verifications()
+        assert backfilled >= 1
+        details3 = await db.get_verification_details(999999)
+        assert details3["programme_code"] == "WAD"
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_database_bounced_emails(tmp_path):
+    db_file = str(tmp_path / "bounced_emails_test.db")
+    db = Database(db_file)
+    await db.connect()
+    try:
+        e_hash = "hash_bounce_1"
+        assert await db.is_email_bounced(e_hash) is False
+
+        # Record bounced email
+        await db.record_bounced_email(
+            email_hash=e_hash,
+            email_encrypted="enc_bounce_1",
+            bounce_code=550,
+            bounce_reason="Mailbox not found",
+        )
+        assert await db.is_email_bounced(e_hash) is True
+
+        # Get details
+        info = await db.get_bounced_email(e_hash)
+        assert info is not None
+        assert info["bounce_code"] == 550
+        assert info["bounce_reason"] == "Mailbox not found"
+
+        # List
+        bounced_list = await db.list_bounced_emails()
+        assert len(bounced_list) == 1
+        assert bounced_list[0]["email_hash"] == e_hash
+
+        # Remove
+        removed = await db.remove_bounced_email(e_hash)
+        assert removed is True
+        assert await db.is_email_bounced(e_hash) is False
+    finally:
+        await db.close()
+
+
+
 

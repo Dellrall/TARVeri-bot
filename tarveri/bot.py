@@ -57,6 +57,7 @@ class TARVeriBot(commands.Bot):
         )
         self.email_service = EmailService(
             settings=settings,
+            db=self.db,
         )
         self.service = VerificationService(
             bot=self,

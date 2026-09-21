@@ -284,7 +284,8 @@ class Database:
                 discord_user_id INTEGER PRIMARY KEY,
                 student_id_hash TEXT UNIQUE NOT NULL,
                 faculty_code TEXT NOT NULL,
-                verified_at TEXT NOT NULL
+                verified_at TEXT NOT NULL,
+                programme_code TEXT
             );
 
             CREATE TABLE IF NOT EXISTS audit_log (
@@ -388,6 +389,15 @@ class Database:
                 decided_at TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS bounced_emails (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email_hash TEXT UNIQUE NOT NULL,
+                email_encrypted TEXT,
+                bounce_code INTEGER,
+                bounce_reason TEXT,
+                detected_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_log(event_type);
             CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
             CREATE INDEX IF NOT EXISTS idx_audit_user_id ON audit_log(user_id);
@@ -402,6 +412,7 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_blacklist_lookup ON guild_blacklists(guild_id, target_type, target_value);
             CREATE INDEX IF NOT EXISTS idx_blacklist_guild ON guild_blacklists(guild_id);
             CREATE INDEX IF NOT EXISTS idx_pending_mass_actions_guild ON pending_mass_actions(guild_id, status);
+            CREATE INDEX IF NOT EXISTS idx_bounced_emails_hash ON bounced_emails(email_hash);
             """
         )
 
@@ -454,7 +465,7 @@ class Database:
             if col not in existing_ticket_cols:
                 await self._conn.execute(f"ALTER TABLE guest_tickets ADD COLUMN {col} {col_def};")
 
-        # 4. verifications (Alumni fields + Campus & Study Level fields + Expiry fields + Email fields)
+        # 4. verifications (Alumni fields + Campus & Study Level fields + Expiry fields + Email fields + Programme Code)
         cursor = await self._conn.execute("PRAGMA table_info(verifications);")
         existing_veri_cols = {row[1] for row in await cursor.fetchall()}
         for col, col_def in [
@@ -469,6 +480,7 @@ class Database:
             ("last_lifecycle_prompt_at", "TEXT"),
             ("student_email_encrypted", "TEXT"),
             ("student_email_hash", "TEXT"),
+            ("programme_code", "TEXT"),
         ]:
             if col not in existing_veri_cols:
                 await self._conn.execute(f"ALTER TABLE verifications ADD COLUMN {col} {col_def};")
@@ -499,6 +511,20 @@ class Database:
                 )
         except Exception as e:
             logger.debug(f"Legacy campus_code migration notice: {e}")
+
+        # Backfill programme_code if missing but campus/faculty available
+        try:
+            cursor = await self._conn.execute(
+                """UPDATE verifications
+                   SET programme_code = campus_code || faculty_code || COALESCE(level_code, 'R')
+                   WHERE programme_code IS NULL AND campus_code IS NOT NULL AND faculty_code IS NOT NULL"""
+            )
+            if cursor.rowcount > 0:
+                logger.info(
+                    f"Backfilled programme_code for {cursor.rowcount} verification record(s)."
+                )
+        except Exception as e:
+            logger.debug(f"Legacy programme_code backfill notice: {e}")
 
         # 6. One-time data migration: Backfill legacy active student verifications missing card_expiry_date
         try:
@@ -937,6 +963,7 @@ class Database:
         lifecycle_prompt_status: str = "ACTIVE",
         student_email_encrypted: str | None = None,
         student_email_hash: str | None = None,
+        programme_code: str | None = None,
     ) -> None:
         ts = now_formatted()
         async with self.transaction() as conn:
@@ -944,9 +971,9 @@ class Database:
                 """INSERT INTO verifications (
                        discord_user_id, student_id_hash, faculty_code, verified_at,
                        campus_code, level_code, card_expiry_date, lifecycle_prompt_status,
-                       student_email_encrypted, student_email_hash
+                       student_email_encrypted, student_email_hash, programme_code
                    )
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     discord_user_id,
                     student_id_hash,
@@ -958,18 +985,19 @@ class Database:
                     lifecycle_prompt_status,
                     student_email_encrypted,
                     student_email_hash,
+                    programme_code,
                 ),
             )
 
     async def get_verification_details(self, discord_user_id: int) -> dict[str, Any] | None:
-        """Retrieves complete verification details (faculty, campus, level, expiry, alumni status, email) for a user."""
+        """Retrieves complete verification details (faculty, campus, level, expiry, alumni status, email, programme code) for a user."""
         if not self._conn:
             raise RuntimeError("Database connection is not open.")
         cursor = await self._conn.execute(
             """SELECT student_id_hash, faculty_code, verified_at, is_alumni, graduated_year,
                       programme, graduated_at, campus_code, level_code, card_expiry_date,
                       lifecycle_prompt_status, last_lifecycle_prompt_at,
-                      student_email_encrypted, student_email_hash
+                      student_email_encrypted, student_email_hash, programme_code
                FROM verifications WHERE discord_user_id = ?""",
             (discord_user_id,),
         )
@@ -991,18 +1019,27 @@ class Database:
             "last_lifecycle_prompt_at": row[11],
             "student_email_encrypted": row[12],
             "student_email_hash": row[13],
+            "programme_code": row[14],
         }
 
     async def backfill_legacy_verifications(self, default_campus: str = "W") -> int:
-        """Backfills legacy verifications missing campus_code to the specified campus code."""
+        """Backfills legacy verifications missing campus_code or programme_code."""
+        total_backfilled = 0
         async with self.transaction() as conn:
-            cursor = await conn.execute(
+            cursor1 = await conn.execute(
                 """UPDATE verifications
                    SET campus_code = ?
                    WHERE campus_code IS NULL""",
                 (default_campus,),
             )
-            return cursor.rowcount
+            total_backfilled += cursor1.rowcount
+            cursor2 = await conn.execute(
+                """UPDATE verifications
+                   SET programme_code = campus_code || faculty_code || COALESCE(level_code, 'R')
+                   WHERE programme_code IS NULL AND campus_code IS NOT NULL AND faculty_code IS NOT NULL"""
+            )
+            total_backfilled += cursor2.rowcount
+            return total_backfilled
 
     async def update_verification_details(
         self,
@@ -1014,6 +1051,7 @@ class Database:
         last_lifecycle_prompt_at: str | None = None,
         student_email_encrypted: str | None = None,
         student_email_hash: str | None = None,
+        programme_code: str | None = None,
     ) -> bool:
         """Updates optional fields for an existing verified student."""
         updates: list[str] = []
@@ -1039,6 +1077,9 @@ class Database:
         if student_email_hash is not None:
             updates.append("student_email_hash = ?")
             params.append(student_email_hash)
+        if programme_code is not None:
+            updates.append("programme_code = ?")
+            params.append(programme_code)
         if not updates:
             return False
         params.append(discord_user_id)
@@ -1130,6 +1171,7 @@ class Database:
         last_lifecycle_prompt_at: str | None = None,
         student_email_encrypted: str | None = None,
         student_email_hash: str | None = None,
+        programme_code: str | None = None,
     ) -> bool:
         """Updates the active verification record during an academic level transition or lifecycle prompt update."""
         updates: list[str] = []
@@ -1156,6 +1198,10 @@ class Database:
         if level_code is not None:
             updates.append("level_code = ?")
             params.append(level_code)
+
+        if programme_code is not None:
+            updates.append("programme_code = ?")
+            params.append(programme_code)
 
         if card_expiry_date is not None:
             updates.append("card_expiry_date = ?")
@@ -2386,5 +2432,87 @@ class Database:
                 }
             )
         return result
+
+    async def record_bounced_email(
+        self,
+        email_hash: str,
+        email_encrypted: str | None = None,
+        bounce_code: int | None = None,
+        bounce_reason: str | None = None,
+    ) -> None:
+        """Records or updates a bounced email address."""
+        ts = now_formatted()
+        async with self.transaction() as conn:
+            await conn.execute(
+                """
+                INSERT INTO bounced_emails (email_hash, email_encrypted, bounce_code, bounce_reason, detected_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(email_hash) DO UPDATE SET
+                    email_encrypted = COALESCE(excluded.email_encrypted, bounced_emails.email_encrypted),
+                    bounce_code = COALESCE(excluded.bounce_code, bounced_emails.bounce_code),
+                    bounce_reason = COALESCE(excluded.bounce_reason, bounced_emails.bounce_reason),
+                    detected_at = excluded.detected_at;
+                """,
+                (email_hash, email_encrypted, bounce_code, bounce_reason, ts),
+            )
+
+    async def is_email_bounced(self, email_hash: str) -> bool:
+        """Checks if an email hash is recorded as bounced."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+        cursor = await self._conn.execute(
+            "SELECT 1 FROM bounced_emails WHERE email_hash = ? LIMIT 1;",
+            (email_hash,),
+        )
+        return (await cursor.fetchone()) is not None
+
+    async def get_bounced_email(self, email_hash: str) -> dict[str, Any] | None:
+        """Retrieves details of a bounced email."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+        cursor = await self._conn.execute(
+            "SELECT email_hash, email_encrypted, bounce_code, bounce_reason, detected_at FROM bounced_emails WHERE email_hash = ?;",
+            (email_hash,),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "email_hash": row[0],
+            "email_encrypted": row[1],
+            "bounce_code": row[2],
+            "bounce_reason": row[3],
+            "detected_at": row[4],
+        }
+
+    async def list_bounced_emails(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Lists recently detected bounced emails."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+        cursor = await self._conn.execute(
+            "SELECT email_hash, email_encrypted, bounce_code, bounce_reason, detected_at FROM bounced_emails ORDER BY id DESC LIMIT ?;",
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+        return [
+            {
+                "email_hash": r[0],
+                "email_encrypted": r[1],
+                "bounce_code": r[2],
+                "bounce_reason": r[3],
+                "detected_at": r[4],
+            }
+            for r in rows
+        ]
+
+    async def remove_bounced_email(self, email_hash: str) -> bool:
+        """Removes an email from the bounced email registry."""
+        async with self.transaction() as conn:
+            cursor = await conn.execute(
+                "DELETE FROM bounced_emails WHERE email_hash = ?;",
+                (email_hash,),
+            )
+            return cursor.rowcount > 0
+
 
 

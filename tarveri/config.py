@@ -309,6 +309,73 @@ STUDY_LEVEL_COLORS: Final[dict[str, int]] = {
     "Postgraduate": 0xD35400,  # Pumpkin (#D35400)
 }
 
+
+def resolve_faculty_role(faculty_code: str | None) -> str | None:
+    """
+    Robustly resolves a faculty role name (e.g. 'FOCS', 'FAFB') from any historical or modern faculty code:
+    - Single-letter code: 'M' -> 'FOCS'
+    - Full role name: 'FOCS' -> 'FOCS'
+    - 2-letter combo (e.g. 'WM', 'PK'): extracts faculty char 'M' / 'K' -> 'FOCS' / 'FCCI'
+    - 3-letter programme code (e.g. 'WMR', 'PKD'): extracts index 1 faculty char 'M' / 'K' -> 'FOCS' / 'FCCI'
+    - Full alias lookup in FACULTY_ALIASES
+    """
+    if not faculty_code:
+        return None
+    code_clean = str(faculty_code).strip().upper()
+    if code_clean in FACULTY_ROLES:
+        return FACULTY_ROLES[code_clean]
+    if code_clean in FACULTY_ROLE_NAMES:
+        return code_clean
+    if len(code_clean) == 2 and code_clean[1] in FACULTY_ROLES:
+        return FACULTY_ROLES[code_clean[1]]
+    if len(code_clean) == 3 and code_clean[1] in FACULTY_ROLES:
+        return FACULTY_ROLES[code_clean[1]]
+    for fac, aliases in FACULTY_ALIASES.items():
+        if any(code_clean == a.upper() for a in aliases):
+            return fac
+    return None
+
+
+def resolve_campus_role(campus_code: str | None) -> str:
+    """
+    Robustly resolves a branch campus role name (e.g. 'KL Main Campus', 'Penang Branch')
+    from any campus code, prefix, or alias. Defaults to 'KL Main Campus'.
+    """
+    if not campus_code:
+        return "KL Main Campus"
+    code_clean = str(campus_code).strip().upper()
+    if code_clean in CAMPUS_ROLES:
+        return CAMPUS_ROLES[code_clean]
+    if code_clean in CAMPUS_ROLE_NAMES:
+        return code_clean
+    if len(code_clean) in (2, 3) and code_clean[0] in CAMPUS_ROLES:
+        return CAMPUS_ROLES[code_clean[0]]
+    for campus_name, aliases in CAMPUS_ALIASES.items():
+        if any(code_clean == a.upper() for a in aliases):
+            return campus_name
+    return "KL Main Campus"
+
+
+def resolve_study_level_role(level_code: str | None) -> str:
+    """
+    Robustly resolves a study level role name (e.g. 'Degree', 'Diploma')
+    from any level code or abbreviation. Defaults to 'Degree'.
+    """
+    if not level_code:
+        return "Degree"
+    code_clean = str(level_code).strip().upper()
+    if code_clean in STUDY_LEVEL_ROLES:
+        return STUDY_LEVEL_ROLES[code_clean]
+    if code_clean in STUDY_LEVEL_ROLE_NAMES:
+        return code_clean
+    if len(code_clean) == 3 and code_clean[2] in STUDY_LEVEL_ROLES:
+        return STUDY_LEVEL_ROLES[code_clean[2]]
+    for lvl_name, aliases in STUDY_LEVEL_ALIASES.items():
+        if any(code_clean == a.upper() for a in aliases):
+            return lvl_name
+    return "Degree"
+
+
 # Pattern: 2 digits + 3 uppercase letters + 2 digits + 3 digits (e.g. 23WMD09867)
 STUDENT_ID_PATTERN: Final[re.Pattern[str]] = re.compile(r"^\d{2}[A-Z]{3}\d{2}\d{3}$")
 
@@ -828,16 +895,20 @@ class StudentIdInfo:
     campus_role: str | None = None
     level_code: str | None = None
     level_role: str | None = None
+    programme_code: str | None = None  # 3-letter branch/faculty/level prefix (e.g. 'WMR' for '24WMR12331')
+    intake_year: str | None = None      # 2-digit intake year (e.g. '24')
+    sequence: str | None = None         # 5-digit sequence (e.g. '12331')
 
 
 def parse_student_id(raw_id: str) -> StudentIdInfo:
     """
     Parses a student ID into detailed components:
-    - Intake year (digits 0..1)
-    - Branch Campus (character 2 -> CAMPUS_ROLES)
-    - Faculty Code (character 3 -> FACULTY_ROLES)
-    - Study Level (character 4 -> STUDY_LEVEL_ROLES)
-    - Registration Sequence (digits 5..9)
+    - Intake year (digits 0..1, e.g. '24')
+    - Branch Campus (character 2 -> CAMPUS_ROLES, e.g. 'W')
+    - Faculty Code (character 3 -> FACULTY_ROLES, e.g. 'M')
+    - Study Level (character 4 -> STUDY_LEVEL_ROLES, e.g. 'R')
+    - Programme Code (characters 2..4, e.g. 'WMR')
+    - Registration Sequence (digits 5..9, e.g. '12331')
     """
     normalized = raw_id.strip().upper().replace("-", "").replace(" ", "")
     if not STUDENT_ID_PATTERN.match(normalized):
@@ -848,9 +919,12 @@ def parse_student_id(raw_id: str) -> StudentIdInfo:
             faculty_role=None,
         )
 
+    intake_year = normalized[:2] if len(normalized) >= 2 else None
     campus_code = normalized[2] if len(normalized) > 2 else None
     faculty_code = normalized[3] if len(normalized) > 3 else None
     level_code = normalized[4] if len(normalized) > 4 else None
+    programme_code = normalized[2:5] if len(normalized) >= 5 else None
+    sequence = normalized[5:] if len(normalized) > 5 else None
 
     campus_role = CAMPUS_ROLES.get(campus_code) if campus_code else None
     faculty_role = FACULTY_ROLES.get(faculty_code) if faculty_code else None
@@ -866,6 +940,9 @@ def parse_student_id(raw_id: str) -> StudentIdInfo:
             campus_role=campus_role,
             level_code=level_code,
             level_role=level_role,
+            programme_code=programme_code,
+            intake_year=intake_year,
+            sequence=sequence,
         )
 
     return StudentIdInfo(
@@ -877,7 +954,34 @@ def parse_student_id(raw_id: str) -> StudentIdInfo:
         campus_role=campus_role,
         level_code=level_code,
         level_role=level_role,
+        programme_code=programme_code,
+        intake_year=intake_year,
+        sequence=sequence,
     )
+
+
+def is_smtp_bounce_error(error_message: str | Exception) -> tuple[bool, str | None, str]:
+    """
+    Analyzes an SMTP exception or error message to detect if it is a recipient hard or soft email bounce.
+    Returns (is_bounce, bounce_code, bounce_reason).
+    """
+    err_str = str(error_message)
+    # Ignore sender/relay rate limits or relay authentication errors
+    if re.search(r"(sending\s+limit|rate\s+limit|relay\s+access\s+denied|authentication\s+failed|bad\s+credentials)", err_str, re.IGNORECASE):
+        return False, None, err_str
+
+    patterns = [
+        (r"\b(5\.1\.1|5\.1\.0|5\.1\.2|5\.2\.1)\b", "550", "Mailbox not found or disabled"),
+        (r"\b550\b.*(user|mailbox|no\s+such|unknown|not\s+found|disabled|rejected|invalid|exist)", "550", "Mailbox not found or disabled"),
+        (r"\b(551|553|554)\b.*(recipient|user|mailbox|address|destination)", "554", "Recipient address rejected by mail server"),
+        (r"\b(552|5\.2\.2)\b", "552", "Recipient mailbox full or quota exceeded"),
+        (r"(user\s+unknown|mailbox\s+unavailable|mailbox\s+not\s+found|recipient\s+rejected|no\s+such\s+user|address\s+rejected|invalid\s+recipient|undeliverable\s+address)", "550", "Recipient address undeliverable / user unknown"),
+    ]
+    for pat, code, reason in patterns:
+        if re.search(pat, err_str, re.IGNORECASE):
+            return True, code, reason
+    return False, None, err_str
+
 
 
 def validate_student_id(raw_id: str) -> tuple[bool, str, str | None, str | None]:

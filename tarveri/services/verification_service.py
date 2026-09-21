@@ -49,6 +49,9 @@ from tarveri.config import (
     mask_student_id,
     parse_card_expiry_date,
     parse_student_id,
+    resolve_campus_role,
+    resolve_faculty_role,
+    resolve_study_level_role,
 )
 from tarveri.database import Database
 from tarveri.rate_limiter import RateLimiter
@@ -661,9 +664,15 @@ class VerificationService:
         if self.db and hasattr(guild, "id"):
             try:
                 is_guild_email_required = await self.db.is_guild_email_verification_enabled(guild.id)
+                is_guild_email_enforced = await self.db.is_guild_email_enforcement_enabled(guild.id)
+                if not is_guild_email_enforced and self.settings:
+                    is_guild_email_enforced = getattr(self.settings, "enable_email_role_enforcement", False)
+
                 if is_guild_email_required and not is_email_verified:
-                    result.requires_email_in.append(guild.name)
-                    return
+                    is_past_verified = bool(await self.db.get_verification_by_user(user_id))
+                    if is_guild_email_enforced or not is_past_verified:
+                        result.requires_email_in.append(guild.name)
+                        return
             except Exception as exc:
                 logger.debug("Failed checking guild email policy for %s: %s", guild.id, exc)
 
@@ -924,6 +933,7 @@ class VerificationService:
             campus_code=to_campus,
             level_code=to_level,
             card_expiry_date=to_expiry_date,
+            programme_code=info.programme_code,
         )
 
         # 3. Strip old alumni role if member held it
@@ -1326,7 +1336,7 @@ class VerificationService:
                 is_user_email_verified = bool(final_email_hash)
 
                 mutual_guilds = await self.get_mutual_guilds_for_user(user.id)
-                assigned_faculty_role = FACULTY_ROLES.get(stored_faculty, role_name)
+                assigned_faculty_role = resolve_faculty_role(stored_faculty) or role_name
                 sync_result = await self.assign_role_across_guilds(
                     user.id,
                     assigned_faculty_role,
@@ -1345,6 +1355,7 @@ class VerificationService:
                         card_expiry_date=iso_expiry_date,
                         student_email_encrypted=email_encrypted,
                         student_email_hash=email_hash,
+                        programme_code=info.programme_code,
                     )
                 except Exception as exc:
                     logger.warning("Failed updating verification details during refresh: %s", exc, exc_info=True)
@@ -1396,69 +1407,87 @@ class VerificationService:
                             card_expiry_date=iso_expiry_date,
                             student_email_encrypted=email_encrypted,
                             student_email_hash=email_hash,
+                            programme_code=info.programme_code,
                         )
                         active_servers = [
-                            entry[1] if len(entry) == 3 else entry[0]
-                            for entry in (sync_result.verified_in + sync_result.already_had_role_in)
+                            f"{g_name} ({r_name})"
+                            for _, g_name, r_name in sync_result.verified_in
                         ]
-                        email_log_str = f", email: {mask_email(clean_email)}" if email_hash and raw_email else ""
                         await self.db.log(
                             "INFO",
                             "VERIFIED",
-                            f"{user} (ID: {user.id}) verified (student ID masked: {mask_student_id(student_id)}{email_log_str}) "
-                            f"→ active in {active_servers}",
+                            f"Verified {user} (ID: {user.id}) as {role_name} "
+                            f"(Campus: {campus_role_name or 'KL Main Campus'}, Level: {level_role_name or 'Degree'}) "
+                            f"in {len(sync_result.verified_in)} server(s): {', '.join(active_servers)}",
                             user_id=user.id,
                             guild=guild_ctx,
                         )
-                except (sqlite3.IntegrityError, aiosqlite.IntegrityError) as e:
-                    # Rollback assigned roles if database collision occurs
-                    for entry in sync_result.verified_in:
-                        if len(entry) == 3:
-                            g_id, _, r_names = entry
-                            guild = self.bot.get_guild(g_id)
-                        else:
-                            g_name, r_names = entry
-                            guild = discord.utils.get(self.bot.guilds, name=g_name)
+                except (sqlite3.IntegrityError, aiosqlite.IntegrityError) as exc:
+                    logger.critical("Database collision on record_verification: %s", exc)
+                    # Rollback assigned roles
+                    target_names = {role_name, campus_role_name, level_role_name}
+                    target_names.discard(None)
+                    for g_id, _, r_label in sync_result.verified_in:
+                        guild_obj = self.bot.get_guild(g_id) if hasattr(self.bot, "get_guild") else None
+                        if not guild_obj and hasattr(self.bot, "guilds"):
+                            for g in self.bot.guilds:
+                                if getattr(g, "id", None) == g_id:
+                                    guild_obj = g
+                                    break
+                        if guild_obj:
+                            member_obj = await self.get_or_fetch_member(guild_obj, user.id)
+                            if member_obj:
+                                roles_to_remove = [
+                                    r for r in getattr(member_obj, "roles", [])
+                                    if getattr(r, "name", "") in target_names
+                                    or (isinstance(getattr(r, "name", None), str) and getattr(r, "name", "") in r_label)
+                                ]
+                                if roles_to_remove:
+                                    try:
+                                        await member_obj.remove_roles(*roles_to_remove, reason="TARVeri: Database collision rollback")
+                                    except Exception as exc:
+                                        logger.debug("Failed removing roles during rollback: %s", exc)
+                                else:
+                                    try:
+                                        await member_obj.remove_roles(reason="TARVeri: Database collision rollback")
+                                    except Exception as exc:
+                                        logger.debug("Failed removing roles during rollback fallback: %s", exc)
+                    return "⚠️ Verification failed due to a collision. Please try again or contact an admin."
+                except Exception as exc:
+                    logger.critical("Failed to record verification in DB: %s", exc, exc_info=True)
+                    return "⚠️ Verification recorded locally, but a database error occurred. Contact an admin."
 
-                        if guild:
-                            member = await self.get_or_fetch_member(guild, user.id)
-                            if member:
-                                for single_r in r_names.split(", "):
-                                    r = discord.utils.get(guild.roles, name=single_r.strip())
-                                    if r and r in member.roles:
-                                        try:
-                                            await member.remove_roles(
-                                                r, reason="TARVeri: Rollback due to database collision"
-                                            )
-                                        except discord.HTTPException as exc:
-                                            logger.debug("Failed removing role during rollback: %s", exc)
-                    await self.db.log(
-                        "ERROR",
-                        "INTEGRITY_CONFLICT",
-                        f"Verification collision for {user} (ID: {user.id}): {e}",
-                        user_id=user.id,
-                        guild=guild_ctx,
+                summary = self.format_role_summary(sync_result) or f"✅ You've been verified as **{role_name}**!"
+
+                today_iso = datetime.now(get_configured_tz()).strftime("%Y-%m-%d")
+                if iso_expiry_date and iso_expiry_date < today_iso:
+                    expiry_disp = format_card_expiry_display(iso_expiry_date)
+                    summary += (
+                        f"\n\n🎓 **Alumni / Academic Status Notice**:\n"
+                        f"Based on your student ID (study validity ended **{expiry_disp}**), you may have already graduated!\n"
+                        f"• Click **I have Graduated** below or run `/graduate` to claim your official **TARUMT Alumni** role & card badge.\n"
+                        f"• If you continued your studies (e.g. Diploma ➔ Degree), click **Further Studies** or run `/verify <new_id>`.\n"
+                        f"• If you are still completing your programme, click **Still Studying / Extension**."
                     )
-                    return (
-                        "❌ Verification failed due to a collision (the student ID or your account was just verified elsewhere). "
-                        "Please contact an admin if this persists."
-                    )
 
-            summary = self.format_role_summary(sync_result) or "⚠️ Verification completed, but no roles could be assigned."
-
-            # Automatically detect if the student ID intake or expiry has already passed
-            today_iso = datetime.now(get_configured_tz()).strftime("%Y-%m-%d")
-            if iso_expiry_date and iso_expiry_date < today_iso:
-                expiry_disp = format_card_expiry_display(iso_expiry_date)
-                summary += (
-                    f"\n\n🎓 **Alumni / Academic Status Notice**:\n"
-                    f"Based on your student ID (study validity ended **{expiry_disp}**), you may have already graduated!\n"
-                    f"• Click **I have Graduated** below or run `/graduate` to claim your official **TARUMT Alumni** role & card badge.\n"
-                    f"• If you continued your studies (e.g. Diploma ➔ Degree), click **Further Studies** or run `/verify <new_id>`.\n"
-                    f"• If you are still completing your programme, click **Still Studying / Extension**."
+                return summary
+            elif sync_result.requires_email_in:
+                servers_str = ", ".join(f"**{g_name}**" for g_name in sync_result.requires_email_in)
+                return (
+                    f"📧 Institutional email verification is required in {servers_str}.\n"
+                    "Please provide your institutional email (`@student.tarc.edu.my`) to complete verification."
                 )
-
-            return summary
+            else:
+                if sync_result.missing_role_in:
+                    failed_names = ", ".join(f"**{name}**" for name in sync_result.missing_role_in)
+                    return (
+                        f"⚠️ Verified your student ID as **{role_name}**, but I couldn't create/find the required role in {failed_names}. "
+                        "Please contact a server administrator to check role permissions."
+                    )
+                return (
+                    f"⚠️ Verified your student ID as **{role_name}**, but could not assign roles. "
+                    "Please contact a server administrator to check role permissions."
+                )
         finally:
             async with self._lock:
                 self._in_flight_users.discard(user.id)
@@ -1470,13 +1499,20 @@ class VerificationService:
         default_level: str | None = None,
     ) -> dict[str, int]:
         """
-        Self-healing: cross-references current guild members against the verifications table.
-        1. If a student verified in DB is missing faculty/campus/study-level roles in this guild,
-           restores and synchronizes them (subject to guild email verification policy).
-        2. If a student is in an email-mandated server without email verification, strips unauthorized roles.
-        3. If an unverified member holds verified roles, cleans up stray roles.
+        Idempotent Self-Healing reconciler:
+        1. Compares SQLite `verifications` table against live guild membership.
+        2. Restores missing Faculty, Branch Campus, and Study Level roles to verified members.
+        3. Cleans up contradictory faculty roles (e.g. user holds both FOCS and FAFB).
+        4. Strips unauthorized roles from members not in `verifications` (rogue role removal).
+        5. Protects against race conditions and hierarchy exceptions.
         """
-        summary = {"checked": 0, "restored": 0, "failed": 0, "unauthorized_cleaned": 0, "unverified_cleaned": 0}
+        summary = {
+            "checked": 0,
+            "restored": 0,
+            "unverified_cleaned": 0,
+            "unauthorized_cleaned": 0,
+            "failed": 0,
+        }
         if not guild:
             return summary
 
@@ -1492,6 +1528,13 @@ class VerificationService:
             all_verifications = []
 
         me = getattr(guild, "me", None)
+        if not me and hasattr(guild, "get_member") and hasattr(self.bot, "user") and self.bot.user:
+            me = guild.get_member(self.bot.user.id)
+        if not me and hasattr(guild, "fetch_member") and hasattr(self.bot, "user") and self.bot.user:
+            try:
+                me = await guild.fetch_member(self.bot.user.id)
+            except Exception:
+                me = None
         can_manage = (
             getattr(me.guild_permissions, "manage_roles", False)
             if me and hasattr(me, "guild_permissions")
@@ -1574,8 +1617,8 @@ class VerificationService:
 
             roles_to_add: list[discord.Role] = []
 
-            # 1. Primary faculty role
-            target_role_name = FACULTY_ROLES.get(faculty_code)
+            # 1. Primary faculty role (robustly resolved from single-letter, 2-letter, or full name)
+            target_role_name = resolve_faculty_role(faculty_code)
             has_faculty_role = False
             if target_role_name and isinstance(member_roles, (list, tuple)):
                 has_faculty_role = self._match_faculty_role_in_list(member_roles, target_role_name) is not None
@@ -1628,9 +1671,9 @@ class VerificationService:
                     logger.warning("Failed updating campus code in reconciliation: %s", exc, exc_info=True)
 
             if not c_code:
-                c_code = default_campus
+                c_code = default_campus or "W"
 
-            target_campus_name = CAMPUS_ROLES.get(c_code, "KL Main Campus")
+            target_campus_name = resolve_campus_role(c_code)
             if not has_campus_role and target_campus_name:
                 target_camp = await self.get_or_create_campus_role(guild, target_campus_name)
                 if target_camp:
@@ -1665,13 +1708,23 @@ class VerificationService:
                 l_code = default_level
 
             if l_code:
-                target_level_name = STUDY_LEVEL_ROLES.get(l_code)
+                target_level_name = resolve_study_level_role(l_code)
                 if target_level_name and not has_level_role:
                     target_lvl = await self.get_or_create_study_level_role(guild, target_level_name)
                     if target_lvl:
                         lvl_pos = getattr(target_lvl, "position", 0)
                         if can_manage and not (isinstance(bot_pos, int) and isinstance(lvl_pos, int) and lvl_pos >= bot_pos):
                             roles_to_add.append(target_lvl)
+
+            # 4. Alumni role (if marked as alumni)
+            if details and details.get("is_alumni"):
+                has_alumni_role = self._match_alumni_role_in_list(member_roles) is not None
+                if not has_alumni_role:
+                    alumni_role = await self.get_or_create_alumni_role(guild)
+                    if alumni_role:
+                        alumni_pos = getattr(alumni_role, "position", 0)
+                        if can_manage and not (isinstance(bot_pos, int) and isinstance(alumni_pos, int) and alumni_pos >= bot_pos):
+                            roles_to_add.append(alumni_role)
 
             if roles_to_add:
                 try:

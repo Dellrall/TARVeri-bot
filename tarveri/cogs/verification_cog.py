@@ -14,12 +14,9 @@ from discord.ext import commands
 
 from tarveri.cogs.guest_cog import VerificationGatewayView
 from tarveri.config import (
-    CAMPUS_ROLES,
     FACULTY_ROLE_NAMES,
-    FACULTY_ROLES,
     GUEST_ROLE_PATTERN,
     ROLE_HELP_KEYWORDS_PATTERN,
-    STUDY_LEVEL_ROLES,
     Settings,
     estimate_student_card_expiry,
     format_card_expiry_display,
@@ -28,6 +25,9 @@ from tarveri.config import (
     mask_email,
     parse_card_expiry_date,
     parse_student_id,
+    resolve_campus_role,
+    resolve_faculty_role,
+    resolve_study_level_role,
 )
 from tarveri.database import Database
 from tarveri.rate_limiter import RateLimiter
@@ -1362,12 +1362,12 @@ class VerificationCog(commands.Cog, name="Verification"):
         if details:
             await interaction.response.defer(ephemeral=True, thinking=True)
             stored_faculty = details.get("faculty_code")
-            faculty_role = FACULTY_ROLES.get(stored_faculty)
+            faculty_role = resolve_faculty_role(stored_faculty)
             if faculty_role:
                 campus_code = details.get("campus_code") or "W"
-                campus_role = CAMPUS_ROLES.get(campus_code, "KL Main Campus")
+                campus_role = resolve_campus_role(campus_code)
                 level_code = details.get("level_code") or "R"
-                level_role = STUDY_LEVEL_ROLES.get(level_code, "Degree")
+                level_role = resolve_study_level_role(level_code)
                 mutual_guilds = await self.service.get_mutual_guilds_for_user(interaction.user.id)
                 result = await self.service.assign_role_across_guilds(
                     interaction.user.id,
@@ -1833,12 +1833,12 @@ class VerificationCog(commands.Cog, name="Verification"):
                 return
 
             stored_faculty = details.get("faculty_code")
-            faculty_role = FACULTY_ROLES.get(stored_faculty)
+            faculty_role = resolve_faculty_role(stored_faculty)
             if faculty_role:
                 campus_code = details.get("campus_code") or "W"
-                campus_role = CAMPUS_ROLES.get(campus_code, "KL Main Campus")
+                campus_role = resolve_campus_role(campus_code)
                 level_code = details.get("level_code") or "R"
-                level_role = STUDY_LEVEL_ROLES.get(level_code, "Degree")
+                level_role = resolve_study_level_role(level_code)
 
                 result = await self.service.assign_role_across_guilds(
                     member.id,
