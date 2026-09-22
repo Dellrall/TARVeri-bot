@@ -1213,7 +1213,7 @@ class AdminCog(commands.Cog, name="Admin"):
 
         await interaction.response.defer(ephemeral=True)
 
-        from tarveri.cogs.guest_cog import VerificationGatewayView
+        from tarveri.cogs.guest_cog import VerificationGatewayView, build_gateway_panel_embed
 
         guest_service = getattr(self.bot, "guest_service", None)
         if not guest_service:
@@ -1226,17 +1226,13 @@ class AdminCog(commands.Cog, name="Admin"):
                 admin_role_name=self.admin_role_name,
             )
 
-        embed = discord.Embed(
-            title="🎓 Welcome to the Server!",
-            description=(
-                "Please choose how you would like to gain access to the server:\n\n"
-                "• 🎓 **TARUMT Students:** Click **Verify TARUMT Student** to submit your Student ID and receive your Faculty Role.\n"
-                "• 🎟️ **Have a Referral Code:** Click **Enter Referral Code** if a current student gave you an invite code.\n"
-                "• 🌐 **Outside Guests / Speakers:** Click **Apply as Guest** to request access from server administration."
-            ),
-            color=discord.Color.dark_teal(),
+        email_required = (
+            await self.db.is_guild_email_verification_enabled(interaction.guild.id)
+            if interaction.guild
+            else False
         )
-        embed.set_footer(text="TARVeri Student & Guest Verification System")
+        guild_name = interaction.guild.name if interaction.guild else "the Server"
+        embed = build_gateway_panel_embed(guild_name=guild_name, require_email=email_required)
 
         view = VerificationGatewayView(self.service, guest_service)
         try:

@@ -1896,18 +1896,38 @@ class VerificationCog(commands.Cog, name="Verification"):
         # New unverified member: Tag them in the server welcome/verification channel with embed and buttons
         welcome_channel = await self.get_welcome_or_verify_channel(member.guild)
         if welcome_channel:
-            welcome_embed = discord.Embed(
-                title="🎓 Welcome to the Server!",
-                description=(
-                    f"Welcome {member.mention} to **{member.guild.name}**!\n\n"
-                    "Please choose an option below to gain access to the server:\n\n"
-                    "• 🎓 **TARUMT Students:** Click **Verify TARUMT Student** to enter your Student ID and receive your Faculty Role.\n"
-                    "• 🎟️ **Referral Code:** Click **Enter Referral Code** if a current student gave you an invite code.\n"
-                    "• 🌐 **Outside Guests / Speakers:** Click **Apply as Guest** to request access from server staff."
-                ),
-                color=discord.Color.blue(),
-            )
-            welcome_embed.set_footer(text="TARVeri Student & Guest Verification • Instant & Secure")
+            guild_email_required = await self.db.is_guild_email_verification_enabled(member.guild.id)
+            if guild_email_required:
+                welcome_embed = discord.Embed(
+                    title="🎓 Welcome to the Server!",
+                    description=(
+                        f"Welcome {member.mention} to **{member.guild.name}**!\n\n"
+                        "Please choose an option below to gain access to the server:\n\n"
+                        "• 🎓 **TARUMT Students:** Click **Verify TARUMT Student** to submit your Student ID and complete institutional email OTP verification (`@student.tarc.edu.my`).\n"
+                        "• 🎟️ **Referral Code:** Click **Enter Referral Code** if a current student gave you an invite code *(No email required)*.\n"
+                        "• 🌐 **Outside Guests / Speakers:** Click **Apply as Guest** to request access from server staff *(No email required)*."
+                    ),
+                    color=discord.Color.gold(),
+                )
+                welcome_embed.add_field(
+                    name="📧 Student Email Verification Required",
+                    value="TARUMT students require 6-digit OTP verification sent to `@student.tarc.edu.my`.\n*(Guests and external visitors do not need an institutional email)*.",
+                    inline=False,
+                )
+                welcome_embed.set_footer(text="TARVeri Student & Guest Verification • Student Email Verification Enabled")
+            else:
+                welcome_embed = discord.Embed(
+                    title="🎓 Welcome to the Server!",
+                    description=(
+                        f"Welcome {member.mention} to **{member.guild.name}**!\n\n"
+                        "Please choose an option below to gain access to the server:\n\n"
+                        "• 🎓 **TARUMT Students:** Click **Verify TARUMT Student** to enter your Student ID and receive your Faculty Role.\n"
+                        "• 🎟️ **Referral Code:** Click **Enter Referral Code** if a current student gave you an invite code.\n"
+                        "• 🌐 **Outside Guests / Speakers:** Click **Apply as Guest** to request access from server staff."
+                    ),
+                    color=discord.Color.blue(),
+                )
+                welcome_embed.set_footer(text="TARVeri Student & Guest Verification • Instant & Secure")
 
             view = (
                 VerificationGatewayView(self.service, self.guest_service)

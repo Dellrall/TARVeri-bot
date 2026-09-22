@@ -208,7 +208,7 @@ class ChannelSelectComponent(ui.ChannelSelect):
         elif self.config_type == "review":
             await self.cog.db.set_guild_review_channel(interaction.guild.id, channel_id)
         elif self.config_type == "panel_deploy":
-            from tarveri.cogs.guest_cog import VerificationGatewayView
+            from tarveri.cogs.guest_cog import VerificationGatewayView, build_gateway_panel_embed
 
             guest_service = getattr(self.cog.bot, "guest_service", None)
             if not guest_service:
@@ -221,17 +221,13 @@ class ChannelSelectComponent(ui.ChannelSelect):
                     admin_role_name=self.cog.admin_role_name,
                 )
 
-            embed = discord.Embed(
-                title="🎓 Welcome to the Server!",
-                description=(
-                    "Please choose how you would like to gain access to the server:\n\n"
-                    "• 🎓 **TARUMT Students:** Click **Verify TARUMT Student** to submit your Student ID and receive your Faculty Role.\n"
-                    "• 🎟️ **Have a Referral Code:** Click **Enter Referral Code** if a current student gave you an invite code.\n"
-                    "• 🌐 **Outside Guests / Speakers:** Click **Apply as Guest** to request access from server administration."
-                ),
-                color=discord.Color.dark_teal(),
+            email_required = (
+                await self.cog.db.is_guild_email_verification_enabled(interaction.guild.id)
+                if interaction.guild
+                else False
             )
-            embed.set_footer(text="TARVeri Student & Guest Verification System")
+            guild_name = interaction.guild.name if interaction.guild else "the Server"
+            embed = build_gateway_panel_embed(guild_name=guild_name, require_email=email_required)
             gateway_view = VerificationGatewayView(self.cog.service, guest_service)
 
             target_ch = interaction.guild.get_channel(channel_id)
@@ -1003,7 +999,7 @@ class AdminDashboardView(ui.View):
             await interaction.response.send_message("❌ Current channel is not a text channel.", ephemeral=True)
             return
 
-        from tarveri.cogs.guest_cog import VerificationGatewayView
+        from tarveri.cogs.guest_cog import VerificationGatewayView, build_gateway_panel_embed
 
         guest_service = getattr(self.cog.bot, "guest_service", None)
         if not guest_service:
@@ -1016,17 +1012,13 @@ class AdminDashboardView(ui.View):
                 admin_role_name=self.cog.admin_role_name,
             )
 
-        embed = discord.Embed(
-            title="🎓 Welcome to the Server!",
-            description=(
-                "Please choose how you would like to gain access to the server:\n\n"
-                "• 🎓 **TARUMT Students:** Click **Verify TARUMT Student** to submit your Student ID and receive your Faculty Role.\n"
-                "• 🎟️ **Have a Referral Code:** Click **Enter Referral Code** if a current student gave you an invite code.\n"
-                "• 🌐 **Outside Guests / Speakers:** Click **Apply as Guest** to request access from server administration."
-            ),
-            color=discord.Color.dark_teal(),
+        email_required = (
+            await self.cog.db.is_guild_email_verification_enabled(interaction.guild.id)
+            if interaction.guild
+            else False
         )
-        embed.set_footer(text="TARVeri Student & Guest Verification System")
+        guild_name = interaction.guild.name if interaction.guild else "the Server"
+        embed = build_gateway_panel_embed(guild_name=guild_name, require_email=email_required)
         gateway_view = VerificationGatewayView(self.cog.service, guest_service)
         await target_ch.send(embed=embed, view=gateway_view)
 

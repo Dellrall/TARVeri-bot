@@ -683,6 +683,48 @@ def build_review_embed(
     return embed
 
 
+def build_gateway_panel_embed(
+    guild_name: str = "the Server",
+    require_email: bool = False,
+) -> discord.Embed:
+    """
+    Builds the standardized verification gateway panel embed.
+    If require_email is True, highlights that institutional email OTP (@student.tarc.edu.my)
+    is required specifically for TARUMT Student verification (Guests & referrals do not need email).
+    """
+    if require_email:
+        embed = discord.Embed(
+            title="🎓 Welcome to the Server!",
+            description=(
+                f"Welcome to **{guild_name}**!\n\n"
+                "Please choose how you would like to gain access to the server:\n\n"
+                "• 🎓 **TARUMT Students:** Click **Verify TARUMT Student** to submit your Student ID and complete institutional email OTP verification (`@student.tarc.edu.my`).\n"
+                "• 🎟️ **Have a Referral Code:** Click **Enter Referral Code** if a current student gave you an invite code *(No email required)*.\n"
+                "• 🌐 **Outside Guests / Speakers:** Click **Apply as Guest** to request access from server staff *(No email required)*."
+            ),
+            color=discord.Color.gold(),
+        )
+        embed.add_field(
+            name="📧 Student Email Verification Required",
+            value="TARUMT students will receive a 6-digit verification code in their `@student.tarc.edu.my` inbox.\n*(Guests and external visitors do not need email verification)*.",
+            inline=False,
+        )
+        embed.set_footer(text="TARVeri Student & Guest Verification System • Student Email Verification Enabled")
+    else:
+        embed = discord.Embed(
+            title="🎓 Welcome to the Server!",
+            description=(
+                "Please choose how you would like to gain access to the server:\n\n"
+                "• 🎓 **TARUMT Students:** Click **Verify TARUMT Student** to submit your Student ID and receive your Faculty Role.\n"
+                "• 🎟️ **Have a Referral Code:** Click **Enter Referral Code** if a current student gave you an invite code.\n"
+                "• 🌐 **Outside Guests / Speakers:** Click **Apply as Guest** to request access from server administration."
+            ),
+            color=discord.Color.dark_teal(),
+        )
+        embed.set_footer(text="TARVeri Student & Guest Verification System")
+    return embed
+
+
 class VerificationGatewayView(discord.ui.View):
     """Persistent 3-button verification gateway view for server welcome channels."""
 
@@ -1004,17 +1046,14 @@ class GuestCog(commands.Cog, name="Guest"):
 
         await interaction.response.defer(ephemeral=True)
 
-        embed = discord.Embed(
-            title="🎓 Welcome to the Server!",
-            description=(
-                "Please choose how you would like to gain access to the server:\n\n"
-                "• 🎓 **TARUMT Students:** Click **Verify TARUMT Student** to submit your Student ID and receive your Faculty Role.\n"
-                "• 🎟️ **Have a Referral Code:** Click **Enter Referral Code** if a current student gave you an invite code.\n"
-                "• 🌐 **Outside Guests / Speakers:** Click **Apply as Guest** to request access from server administration."
-            ),
-            color=discord.Color.dark_teal(),
+        db = getattr(self.verification_service, "db", None) or self.db
+        email_required = (
+            await db.is_guild_email_verification_enabled(interaction.guild.id)
+            if interaction.guild and db
+            else False
         )
-        embed.set_footer(text="TARVeri Student & Guest Verification System")
+        guild_name = interaction.guild.name if interaction.guild else "the Server"
+        embed = build_gateway_panel_embed(guild_name=guild_name, require_email=email_required)
 
         view = VerificationGatewayView(self.verification_service, self.guest_service)
         try:
