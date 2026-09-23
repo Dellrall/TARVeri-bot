@@ -203,9 +203,11 @@ journalctl --user -u tarveri -f
 | `/card [member] [hidden]` | User | Generate high-DPI digital campus ID card. |
 | `/referral generate` | User | Generate a single-use guest referral code. |
 | `/admin dashboard` | Admin | Open the interactive Control Center dashboard. |
+| `/admin user_info @user` | Admin | Inspect member verification status, join history & roles. |
 | `/admin diagnose` | Admin | Run role hierarchy and database self-healing diagnostics. |
-| `/admin panel` | Admin | Post persistent 3-button verification gateway panel. |
+| `/admin panel` | Admin | Post streamlined 3-button verification gateway panel. |
 | `/admin unverify @user` | Admin | Unlink student ID and revoke roles across servers. |
+| `/randomtag [role] [count]` | Admin | Securely sample and tag random members of a target role. |
 
 ---
 

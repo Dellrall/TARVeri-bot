@@ -2,7 +2,47 @@
 
 All notable changes to the **TARVeri** Discord Student & Guest Verification Bot are documented in this file.
 
-## [v2.6.0] — 2026-09-21 (Current)
+## [v2.7.0] — 2026-09-24 (Current)
+### 🔍 Member Verification & User Info Inspector
+* **Diagnostic User Metadata Inspection**:
+  - Added `/admin user_info` slash command and **`🔍 Inspect User Info`** modal in `/admin dashboard` (under *Member Moderation*).
+  - Inspects any guild member by mention or snowflake ID, reporting:
+    - Verification Tier: **Tier 1 (Fast Verified)** vs **Tier 2 (Email-Attested)**.
+    - Masked Student ID (`24***34`) and Masked Institutional Email (`s***@student.tarc.edu.my`).
+    - Parsed Faculty, Campus Branch, and Study Level.
+    - Timestamps for Discord account creation, server join date, and initial verification.
+    - Guest and referral status (referral code created or sponsoring student).
+    - Full list of assigned Discord roles.
+
+### 🎨 Streamlined Gateway & Welcome Embed Redesign
+* **Modernized 3-Option Layout**:
+  - Overhauled `build_gateway_panel_embed` and `on_member_join` welcome embeds.
+  - Eliminated redundant paragraphs and bulky extra fields; formatted clean single-line bullet items directly mapped to the 3 gateway buttons:
+    - 🎓 **TARUMT Student** — Enter Student ID & verify `@student.tarc.edu.my` OTP
+    - 🎟️ **Referral Code** — Enter an invite code from an existing student
+    - 🌐 **Guest / Speaker** — Apply for visitor access
+  - Unified color scheme with Discord blurple accents and concise status footer.
+
+### 🔒 Server Join Mandatory Email Verification Gating
+* **Join Role Gating for Email-Mandated Servers**:
+  - When a user joins a server with `require_email=1`, the bot verifies whether the student completed institutional email OTP verification.
+  - If the student previously verified only Tier 1 (without email OTP in an Opt-Out server), roles are safely withheld upon join and the user is welcomed with the gateway panel to complete institutional email OTP.
+
+### ⚡ Dashboard UI Resilience & Timeout Protection
+* **Menu Auto-Reset & Interaction Deferrals**:
+  - Fixed select dropdown menus getting stuck on channel/role selection by restoring button navigation via `_rebuild_components()`.
+  - Added pre-flight ephemeral interaction deferrals across dashboard category changes to eliminate Discord interaction timeout errors.
+
+### 🎲 Role Member Sampling (`/randomtag`)
+* **Secure Random Tagging**:
+  - Verified and documented `/randomtag role:<@Role> [count] [exclude_role]` command for fair role member selection and giveaways.
+
+### 🧪 Test Suite Hardening
+* Expanded test suite to **239 passing unit and integration tests** with 0 warnings under `-W error`.
+
+---
+
+## [v2.6.0] — 2026-09-21
 ### 🚫 Multi-Vector Per-Server Blacklist System
 * **Tri-Vector Blind Index Blacklisting**:
   - Implemented per-server blacklist storage (`guild_blacklists`) supporting 3 independent dimensions:

@@ -5,12 +5,14 @@ TARVeri automates student verification and role provisioning for Tunku Abdul Rah
 ---
 
 ## 📋 Table of Contents
-1. [Student ID Format & Parsing](#student-id-format--parsing)
-2. [Dynamic Century Windowing](#dynamic-century-windowing)
-3. [Institutional Email OTP Verification](#institutional-email-otp-verification)
-4. [8-Year Expiry Anomaly Guard](#8-year-expiry-anomaly-guard)
-5. [Academic Level Progression](#academic-level-progression)
-6. [Graduation & Alumni Status](#graduation--alumni-status)
+1. [Student ID Format & Parsing](#1-student-id-format--parsing)
+2. [Dynamic Century Windowing](#2-dynamic-century-windowing)
+3. [Institutional Email OTP Verification](#3-institutional-email-otp-verification)
+4. [Programme Code Storage & Multi-Character Role Recovery](#4-programme-code-storage--multi-character-role-recovery)
+5. [8-Year Expiry Anomaly Guard](#5-8-year-expiry-anomaly-guard)
+6. [Academic Level Progression](#6-academic-level-progression)
+7. [Graduation & Alumni Status](#7-graduation--alumni-status)
+8. [Tiered Trust & Cross-Server Role Synchronization](#8-tiered-trust--cross-server-role-synchronization)
 
 ---
 
@@ -74,7 +76,7 @@ This ensures that even during full-server reconciliations or member rejoins, all
 
 ---
 
-## 4. 8-Year Expiry Anomaly Guard
+## 5. 8-Year Expiry Anomaly Guard
 
 If a student enters an unusual expiry date exceeding $\pm 8$ years relative to their intake (such as typing `06/07` intending July 6th, which parses as June 2007), TARVeri presents an interactive panel:
 - `[Confirm Date]`: Keeps the date if the student graduated in the past.
@@ -83,7 +85,7 @@ If a student enters an unusual expiry date exceeding $\pm 8$ years relative to t
 
 ---
 
-## 5. Academic Level Progression
+## 6. Academic Level Progression
 
 Students transitioning between levels (e.g. Diploma $\to$ Degree):
 - Simply run `/verify student_id:<new_id>`.
@@ -91,14 +93,14 @@ Students transitioning between levels (e.g. Diploma $\to$ Degree):
 
 ---
 
-## 6. Graduation & Alumni Status
+## 7. Graduation & Alumni Status
 
 - **`/graduate [year] [programme]`**: Verified students claim their `TARUMT Alumni` role and gold card badge.
 - **Graduation Watchdog**: Scans daily for expired card dates and sends polite DM resolution prompts.
 
 ---
 
-## 7. Tiered Trust & Cross-Server Role Synchronization
+## 8. Tiered Trust & Cross-Server Role Synchronization
 
 TARVeri implements a tiered verification trust model across multiple Discord servers:
 
@@ -106,6 +108,11 @@ TARVeri implements a tiered verification trust model across multiple Discord ser
 | :--- | :--- | :--- | :--- |
 | **Tier 1: Fast Verified** | Student ID syntax verified without email OTP | **Auto-assigned roles** on join and resync | **Roles held in escrow** until email OTP verification is completed |
 | **Tier 2: Email-Attested** | Student ID + `@student.tarc.edu.my` OTP verified | **Auto-assigned roles immediately** | **Auto-assigned roles immediately** |
+
+### Member Join & Server Re-entry Flow:
+- When a user joins an **Opt-In Server**:
+  - If the user already completed Tier 2 (Email OTP) in any mutual server, roles are granted instantly.
+  - If the user previously verified only as Tier 1 (no email OTP), roles are **not granted**. The bot welcomes the user in `#welcome` with the 3-button verification gateway, prompting them to complete institutional email OTP verification before gaining faculty roles.
 
 ### Self-Healing & Unverification Lifecycle:
 1. **Unverification (`/admin unverify`)**: Strips faculty, campus, study level, and alumni roles across **all mutual servers** the user shares with the bot, clears database persistence, and resets rate limiters.

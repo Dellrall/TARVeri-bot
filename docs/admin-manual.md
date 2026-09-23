@@ -1,28 +1,50 @@
 # 🛡️ Administrator Operations & Control Center Manual
 
-TARVeri includes an interactive administration suite with diagnostics, telemetry, role synchronization, and server operations.
+TARVeri includes an interactive administration suite with diagnostics, telemetry, role synchronization, user inspection, and server operations.
 
 ---
 
 ## 📋 Table of Contents
-1. [Interactive Admin Dashboard](#interactive-admin-dashboard)
-2. [Diagnostic & Self-Healing Commands](#diagnostic--self-healing-commands)
-3. [Moderation & Verification Actions](#moderation--verification-actions)
-4. [Channel & Role Configuration](#channel--role-configuration)
-5. [Database Backups & Audit Logs](#database-backups--audit-logs)
-6. [Complete Slash Command Matrix](#complete-slash-command-matrix)
+1. [Interactive Admin Dashboard](#1-interactive-admin-dashboard-admin-dashboard)
+2. [Member Verification & User Info Inspector](#2-member-verification--user-info-inspector)
+3. [Diagnostic & Self-Healing Commands](#3-diagnostic--self-healing-commands)
+4. [Moderation & Verification Actions](#4-moderation--verification-actions)
+5. [Channel & Role Configuration](#5-channel--role-configuration)
+6. [Database Backups & Audit Logs](#6-database-backups--audit-logs)
+7. [Multi-Vector Per-Server Blacklist System](#7-multi-vector-per-server-blacklist-system)
+8. [High-Impact Mass Action Safety Guard & Role Restoration](#8-high-impact-mass-action-safety-guard--role-restoration)
+9. [Role Member Sampling & Random Tagging](#9-role-member-sampling--random-tagging-randomtag)
+10. [Complete Slash Command Matrix](#10-complete-slash-command-matrix)
 
 ---
 
 ## 1. Interactive Admin Dashboard (`/admin dashboard`)
 
 Opens the interactive Administrator Control Center featuring:
-- **Navigation Menu**: Dropdown categories (`Overview`, `Configuration`, `Diagnostics`, `Moderation`, `Tickets`, `Backups`, `Logs`, `Gateway Panel`).
-- **One-Click Actions**: Trigger self-healing diagnostics, database backups, email requirement toggles, and member unverification via native Discord modals.
+- **Navigation Menu**: Dropdown categories (`Overview`, `Configuration`, `Diagnostics`, `Member Moderation`, `Tickets`, `Backups`, `Audit Logs`, `Gateway Panel`).
+- **One-Click Actions**: Trigger self-healing diagnostics, database backups, email requirement toggles, user inspection modals, and member unverification via native Discord UI.
+- **Resilient UI Controls**: Built-in interaction deferrals and auto-resetting category menus preventing Discord interaction timeouts.
 
 ---
 
-## 2. Diagnostic & Self-Healing Commands
+## 2. Member Verification & User Info Inspector
+
+Administrators can inspect comprehensive verification and membership metadata for any server member:
+
+### Slash Command:
+- **`/admin user_info user:@Member`** (or by Discord user snowflake ID):
+  - **Verification Status**: Displays Tier 1 (Fast Verified without email) or Tier 2 (Email-Attested OTP).
+  - **Academic Metadata**: Masked Student ID (`24***34`), Masked Email (`s***@student.tarc.edu.my`), parsed Faculty, Campus Branch, and Study Level.
+  - **Timestamps**: Discord Account Creation Date, Server Join Date, and Initial Verification Timestamp.
+  - **Guest / Referral Records**: Active guest status, referral code ownership, or sponsoring student.
+  - **Current Roles**: Complete inventory of all assigned Discord roles.
+
+### Dashboard Quick-Inspect Modal:
+- Navigate to `/admin dashboard` $\to$ `Member Moderation` $\to$ click **`🔍 Inspect User Info`** to open a native modal and enter any Member ID / Mention.
+
+---
+
+## 3. Diagnostic & Self-Healing Commands
 
 - **`/admin diagnose`**: Checks role hierarchies, scans for duplicate faculty roles, restores missing council/SRC roles, and cleans orphaned ticket states.
 - **`/admin backfill_roles [default_campus] [default_level] [all_servers]`**: Batch-syncs campus branch and study level roles for all previously verified members.
@@ -31,24 +53,24 @@ Opens the interactive Administrator Control Center featuring:
 
 ---
 
-## 3. Moderation & Verification Actions
+## 4. Moderation & Verification Actions
 
-- **`/admin unverify @user [reason]`**: Unlinks a student ID, records audit history, and revokes faculty roles.
+- **`/admin unverify @user [reason]`**: Unlinks a student ID, records audit history, and revokes faculty roles across all mutual servers.
 - **`/admin alumni_revoke @user [reason]`**: Revokes alumni status and removes the `TARUMT Alumni` role across mutual servers.
 - **`/admin close_ticket [ticket] [reason]`**: Manually closes a guest review ticket without kicking the applicant from the server.
 
 ---
 
-## 4. Channel & Role Configuration
+## 5. Channel & Role Configuration
 
 - **`/admin set_channel [type] [channel]`**: Configures `welcome`, `help`, or guest `review` channels.
 - **`/admin set_role [type] [role]`**: Configures `guest` or `admin` reviewer roles.
-- **`/admin panel [channel]`**: Posts the persistent 3-button verification gateway panel.
-- **`/admin email_verification [enabled]`**: Enables or disables mandatory email OTP verification on the current server.
+- **`/admin panel [channel]`**: Posts the streamlined 3-button verification gateway panel.
+- **`/admin email_verification [enabled]`**: Enables or disables mandatory email OTP verification on the current server. When enabled, new members who verified without email in other servers must complete institutional email verification upon joining before roles are granted.
 
 ---
 
-## 5. Database Backups & Audit Logs
+## 6. Database Backups & Audit Logs
 
 - **`/admin backup [action]`**: Creates an immediate SQLite snapshot or lists previous backup archives.
 - **Dual Backup Isolation**:
@@ -59,7 +81,7 @@ Opens the interactive Administrator Control Center featuring:
 
 ---
 
-## 6. Multi-Vector Per-Server Blacklist System
+## 7. Multi-Vector Per-Server Blacklist System
 
 TARVeri includes a privacy-preserving, per-server blacklist system allowing server administrators to block and automatically strip roles from bad actors across 3 independent dimensions:
 
@@ -84,7 +106,7 @@ TARVeri includes a privacy-preserving, per-server blacklist system allowing serv
 
 ---
 
-## 7. High-Impact Mass Action Safety Guard & Role Restoration
+## 8. High-Impact Mass Action Safety Guard & Role Restoration
 
 ### 2-Step Interactive Approval for Mass Revocations:
 Any automated reconciliation or bulk administrative action affecting **more than 5 members simultaneously** (configurable via `TARVERI_MASS_REVOCATION_THRESHOLD`) is automatically intercepted to prevent rogue mass role stripping:
@@ -99,11 +121,21 @@ If a member previously verified (or joined during an outage) is missing their fa
 
 ---
 
-## 8. Complete Slash Command Matrix
+## 9. Role Member Sampling & Random Tagging (`/randomtag`)
+
+- **`/randomtag role:<@Role> [count:1-25] [exclude_role:<@Role>]`**:
+  - Securely samples a uniform random subset of members holding a target role.
+  - Useful for giveaways, moderation audits, study group selection, or icebreakers.
+  - Generates formatted Discord mentions with safety caps to prevent unintentional notification spam.
+
+---
+
+## 10. Complete Slash Command Matrix
 
 | Slash Command | Permissions | Description |
 | :--- | :---: | :--- |
 | `/admin dashboard` | Administrator | Open the interactive control center dashboard. |
+| `/admin user_info` | Administrator | Inspect member verification, join history, email status & role breakdown. |
 | `/admin stats` | Administrator | View student metrics and faculty distribution. |
 | `/admin email_stats` | Administrator | View email verification and opt-in rates. |
 | `/admin email_verification` | Administrator | Toggle mandatory student email OTP verification. |
@@ -118,7 +150,7 @@ If a member previously verified (or joined during an outage) is missing their fa
 | `/admin backfill_roles` | Administrator | Backfill branch campus and study level roles. |
 | `/admin unverify` | Administrator | Unlink student ID and revoke roles across all mutual servers. |
 | `/admin alumni_revoke` | Administrator | Revoke alumni status and card badges. |
-| `/admin panel` | Administrator | Post the 3-button verification gateway panel. |
+| `/admin panel` | Administrator | Post the streamlined 3-button verification gateway panel. |
 | `/admin tickets` | Administrator | List and inspect guest review tickets. |
 | `/admin close_ticket` | Administrator | Close a review ticket without kicking applicant. |
 | `/admin backup` | Administrator | Manage on-demand and automated SQLite snapshots. |
@@ -129,4 +161,4 @@ If a member previously verified (or joined during an outage) is missing their fa
 | `/admin resync` | Administrator | Force verification role reconciliation. |
 | `/admin updates` | Administrator | Check for upstream Git releases. |
 | `/admin sync_commands` | Administrator | Force slash command registration with Discord. |
-
+| `/randomtag` | Administrator | Randomly select and mention members from a target role. |
