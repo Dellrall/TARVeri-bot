@@ -220,7 +220,8 @@ class ChannelSelectComponent(ui.ChannelSelect):
     async def callback(self, interaction: discord.Interaction) -> None:
         if not interaction.guild or not self.values:
             return
-        await interaction.response.defer()
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         selected_ch = self.values[0]
         channel_id = selected_ch.id
 
@@ -276,6 +277,7 @@ class ChannelSelectComponent(ui.ChannelSelect):
             user_id=interaction.user.id,
         )
 
+        self.dashboard_view._rebuild_components()
         embed = await self.dashboard_view.build_config_embed(interaction.guild)
         await self.dashboard_view.update_message(interaction, embed=embed)
 
@@ -294,7 +296,8 @@ class RoleSelectComponent(ui.RoleSelect):
     async def callback(self, interaction: discord.Interaction) -> None:
         if not interaction.guild or not self.values:
             return
-        await interaction.response.defer()
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         selected_role = self.values[0]
         await self.cog.db.set_guild_admin_role(interaction.guild.id, selected_role.name)
 
@@ -306,6 +309,7 @@ class RoleSelectComponent(ui.RoleSelect):
             user_id=interaction.user.id,
         )
 
+        self.dashboard_view._rebuild_components()
         embed = await self.dashboard_view.build_config_embed(interaction.guild)
         await self.dashboard_view.update_message(interaction, embed=embed)
 
@@ -394,6 +398,8 @@ class AdminCategorySelect(ui.Select):
         self.dashboard_view = dashboard_view
 
     async def callback(self, interaction: discord.Interaction) -> None:
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         self.dashboard_view.current_category = self.values[0]
         await self.dashboard_view.refresh_view(interaction)
 
@@ -858,13 +864,12 @@ class AdminDashboardView(ui.View):
         target_user = self.cog.bot.get_user(user_id)
         target_member = guild.get_member(user_id) if guild else None
 
-        user_name = str(target_user) if target_user else (str(target_member) if target_member else f"User ID {user_id}")
         user_avatar_url = target_user.display_avatar.url if target_user else (target_member.display_avatar.url if target_member else None)
 
         details = await self.cog.db.get_verification_details(user_id)
 
         embed = discord.Embed(
-            title=f"🔍 Member Verification & Audit Record",
+            title="🔍 Member Verification & Audit Record",
             description=f"Showing full verification state and security profile for <@{user_id}> (`{user_id}`).",
             color=discord.Color.blue() if details else discord.Color.greyple(),
         )
@@ -979,9 +984,13 @@ class AdminDashboardView(ui.View):
     # --- Button Callbacks ---
 
     async def _on_refresh_clicked(self, interaction: discord.Interaction) -> None:
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         await self.refresh_view(interaction)
 
     async def _on_switch_diagnose(self, interaction: discord.Interaction) -> None:
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         self.current_category = "diagnose"
         await self.refresh_view(interaction)
 
@@ -1123,6 +1132,8 @@ class AdminDashboardView(ui.View):
         await self.update_message(interaction, embed=embed)
 
     async def _on_refresh_tickets(self, interaction: discord.Interaction) -> None:
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         await self.refresh_view(interaction)
 
     async def _on_create_backup_clicked(self, interaction: discord.Interaction) -> None:

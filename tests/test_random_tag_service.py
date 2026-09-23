@@ -1,10 +1,8 @@
-import asyncio
-import json
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from tarveri.services.random_tag_service import RandomTagService, calculate_next_random_delay
-from tarveri.cogs.random_tag_cog import RandomTagCog, RandomTagDashboardView
 
 
 @pytest.mark.asyncio

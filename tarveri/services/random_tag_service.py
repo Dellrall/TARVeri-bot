@@ -8,11 +8,10 @@ import asyncio
 import json
 import logging
 import random
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import discord
-from discord import ChannelType
 
 if TYPE_CHECKING:
     from tarveri.bot import TARVeriBot
@@ -111,7 +110,7 @@ class RandomTagService:
                 "target_channel_id": None,
                 "max_daily_runs": 5,
                 "current_daily_runs": 0,
-                "last_reset_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                "last_reset_date": datetime.now(UTC).strftime("%Y-%m-%d"),
                 "chance_denominator": 5,
                 "min_interval_minutes": 15,
                 "max_interval_minutes": 180,
@@ -219,8 +218,8 @@ class RandomTagService:
                 ch = guild.get_channel(int(configured_channel_id)) or await guild.fetch_channel(int(configured_channel_id))
                 if isinstance(ch, discord.TextChannel):
                     return ch
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Could not fetch configured general channel %s: %s", configured_channel_id, e)
 
         # Find by name "general"
         for ch in guild.text_channels:
@@ -263,7 +262,7 @@ class RandomTagService:
         if not config["is_enabled"]:
             return
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         today_str = now.strftime("%Y-%m-%d")
 
         # 1. Reset daily count at midnight
