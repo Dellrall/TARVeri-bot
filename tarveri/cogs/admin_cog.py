@@ -15,6 +15,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from tarveri.cogs.admin_dashboard import AdminDashboardView
+from tarveri.cogs.random_tag_cog import RandomTagDashboardView
 from tarveri.config import (
     CAMPUS_ROLE_NAMES,
     CAMPUS_ROLES,
@@ -110,6 +111,56 @@ class AdminCog(commands.Cog, name="Admin"):
         await interaction.response.defer(ephemeral=True)
         view = AdminDashboardView(cog=self, admin_user=interaction.user, initial_category="overview")
         embed = await view.build_overview_embed(interaction.guild)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+    @admin_group.command(
+        name="randomtag",
+        description="Configure randomized user mentions in #general.",
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def randomtag(self, interaction: discord.Interaction) -> None:
+        """Launches the Random Tagging configuration dashboard."""
+        if not self._check_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this command.", ephemeral=True
+            )
+            schedule_ttl_delete(interaction, delay=60.0)
+            return
+
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "❌ This command must be executed within a Discord server.", ephemeral=True
+            )
+            return
+
+        random_tag_service = getattr(self.bot, "random_tag_service", None)
+        if not random_tag_service:
+            await interaction.response.send_message(
+                "❌ Random Tagging Service is not currently active.", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        config = await random_tag_service.get_config(interaction.guild.id)
+        status_emoji = "🟢 Enabled" if config["is_enabled"] else "🔴 Disabled"
+        words_preview = ", ".join(f"`{w}`" for w in config["words_list"][:8])
+
+        embed = discord.Embed(
+            title=f"🎲 Random Tagging Control Panel — {interaction.guild.name}",
+            color=discord.Color.blue() if config["is_enabled"] else discord.Color.greyple(),
+            description=(
+                f"**Status:** {status_emoji}\n"
+                f"**Target Channel:** Strictly `#general`\n"
+                f"**Daily Limit:** `{config['current_daily_runs']} / {config['max_daily_runs']}` tags sent today\n"
+                f"**Odds:** `1 in {config['chance_denominator']}` chance per tick\n"
+                f"**Interval Window:** `{config['min_interval_minutes']}` - `{config['max_interval_minutes']}` mins (highly randomized with jitter)\n"
+                f"**Rotation Mode:** `{config['word_rotation_mode'].replace('_', ' ').title()}`\n\n"
+                f"**Configured Words ({len(config['words_list'])}):**\n{words_preview}"
+            ),
+        )
+        embed.set_footer(text="Click the buttons below to toggle or customize settings.")
+
+        view = RandomTagDashboardView(random_tag_service, interaction.guild.id)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     # ==========================================
@@ -331,8 +382,35 @@ class AdminCog(commands.Cog, name="Admin"):
         schedule_ttl_delete(interaction, delay=90.0)
 
     # ==========================================
-    # 👥 4. Member Moderation (Unverify & Revoke)
+    # 👥 4. Member Moderation (Lookup, Unverify & Revoke)
     # ==========================================
+
+    @admin_group.command(
+        name="user_info",
+        description="Inspect member verification profile, student roles, join date, and audit history.",
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(
+        user="The Discord member or user to inspect",
+    )
+    async def user_info(
+        self,
+        interaction: discord.Interaction,
+        user: discord.User | discord.Member,
+    ) -> None:
+        """Inspects member verification status, faculty/campus/level roles, join history, and audit log."""
+        if not self._check_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this command.", ephemeral=True
+            )
+            schedule_ttl_delete(interaction, delay=60.0)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        dashboard_view = AdminDashboardView(cog=self, admin_user=interaction.user, initial_category="moderation")
+        embed = await dashboard_view.build_user_details_embed(user.id, interaction.guild)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        schedule_ttl_delete(interaction, delay=180.0)
 
     @admin_group.command(name="unverify", description="Unlink a member's student ID and revoke faculty roles.")
     @app_commands.default_permissions(administrator=True)

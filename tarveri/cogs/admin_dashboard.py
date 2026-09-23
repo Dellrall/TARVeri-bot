@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING
 import discord
 from discord import ui
 
-from tarveri.config import FACULTY_ROLES, resolve_faculty_role
+from tarveri.config import (
+    FACULTY_ROLES,
+    resolve_campus_role,
+    resolve_faculty_role,
+    resolve_study_level_role,
+)
 from tarveri.services.log_service import (
     archive_old_logs,
     list_daily_logs,
@@ -139,6 +144,30 @@ class AlumniRevokeModal(ui.Modal, title="🎓 Revoke Alumni Status"):
             ephemeral=True,
         )
         schedule_ttl_delete(interaction, delay=60.0)
+
+
+class UserLookupModal(ui.Modal, title="🔍 Member & Verification Lookup"):
+    user_input = ui.TextInput(
+        label="User ID or Mention",
+        placeholder="e.g. 123456789012345678 or @member",
+        required=True,
+        max_length=64,
+    )
+
+    def __init__(self, cog: AdminCog, dashboard_view: AdminDashboardView) -> None:
+        super().__init__()
+        self.cog = cog
+        self.dashboard_view = dashboard_view
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        user_id = _extract_user_id(self.user_input.value)
+        if not user_id:
+            await interaction.followup.send("❌ Invalid User ID or mention provided.", ephemeral=True)
+            return
+
+        embed = await self.dashboard_view.build_user_details_embed(user_id, interaction.guild)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 class GuestRoleModal(ui.Modal, title="⚙️ Configure Guest Role Name"):
@@ -347,6 +376,13 @@ class AdminCategorySelect(ui.Select):
                 emoji="🔄",
                 default=dashboard_view.current_category == "updates",
             ),
+            discord.SelectOption(
+                label="Random User Tagging",
+                value="randomtag",
+                description="Configure periodic, randomized mentions in #general.",
+                emoji="🎲",
+                default=dashboard_view.current_category == "randomtag",
+            ),
         ]
         super().__init__(
             placeholder="Select Control Center Category...",
@@ -436,6 +472,10 @@ class AdminDashboardView(ui.View):
             self.add_item(btn_run_diag)
 
         elif self.current_category == "moderation":
+            btn_lookup = ui.Button(label="Lookup Member Info", style=discord.ButtonStyle.primary, emoji="🔍")
+            btn_lookup.callback = self._on_user_lookup_clicked
+            self.add_item(btn_lookup)
+
             btn_unverify = ui.Button(label="Unverify Student", style=discord.ButtonStyle.danger, emoji="❌")
             btn_unverify.callback = self._on_unverify_clicked
             self.add_item(btn_unverify)
@@ -485,6 +525,19 @@ class AdminDashboardView(ui.View):
             btn_resync.callback = self._on_resync_clicked
             self.add_item(btn_resync)
 
+        elif self.current_category == "randomtag":
+            btn_toggle = ui.Button(label="Toggle Enable/Disable", style=discord.ButtonStyle.primary, emoji="🔄")
+            btn_toggle.callback = self._on_randomtag_toggle_clicked
+            self.add_item(btn_toggle)
+
+            btn_config = ui.Button(label="Configure Settings & Words", style=discord.ButtonStyle.secondary, emoji="⚙️")
+            btn_config.callback = self._on_randomtag_config_clicked
+            self.add_item(btn_config)
+
+            btn_mode = ui.Button(label="Toggle Rotation Mode", style=discord.ButtonStyle.secondary, emoji="🔀")
+            btn_mode.callback = self._on_randomtag_mode_clicked
+            self.add_item(btn_mode)
+
     async def refresh_view(self, interaction: discord.Interaction) -> None:
         self._rebuild_components()
         embed = await self.build_current_embed(interaction.guild)
@@ -515,6 +568,8 @@ class AdminDashboardView(ui.View):
             return await self.build_panel_embed(guild)
         elif self.current_category == "updates":
             return await self.build_updates_embed(guild)
+        elif self.current_category == "randomtag":
+            return await self.build_randomtag_embed(guild)
         return await self.build_overview_embed(guild)
 
     # --- Embed Builders ---
@@ -655,6 +710,11 @@ class AdminDashboardView(ui.View):
             color=discord.Color.blue(),
         )
         embed.add_field(
+            name="🔍 Lookup Member Info",
+            value="Inspect student ID status, institutional email OTP status, faculty/campus/level roles, join date, graduation year, academic transitions, guest tickets, and audit history.",
+            inline=False,
+        )
+        embed.add_field(
             name="❌ Unverify Student",
             value="Unlinks student ID hash, resets rate limiting, and revokes faculty roles across mutual servers.",
             inline=False,
@@ -793,6 +853,129 @@ class AdminDashboardView(ui.View):
 
         return embed
 
+    async def build_user_details_embed(self, user_id: int, guild: discord.Guild | None) -> discord.Embed:
+        """Builds an exhaustive audit and profile embed for a specific Discord user."""
+        target_user = self.cog.bot.get_user(user_id)
+        target_member = guild.get_member(user_id) if guild else None
+
+        user_name = str(target_user) if target_user else (str(target_member) if target_member else f"User ID {user_id}")
+        user_avatar_url = target_user.display_avatar.url if target_user else (target_member.display_avatar.url if target_member else None)
+
+        details = await self.cog.db.get_verification_details(user_id)
+
+        embed = discord.Embed(
+            title=f"🔍 Member Verification & Audit Record",
+            description=f"Showing full verification state and security profile for <@{user_id}> (`{user_id}`).",
+            color=discord.Color.blue() if details else discord.Color.greyple(),
+        )
+        if user_avatar_url:
+            embed.set_thumbnail(url=user_avatar_url)
+
+        # 1. Verification & Identity Status
+        if details:
+            fac_code = details.get("faculty_code") or "N/A"
+            fac_name = FACULTY_ROLES.get(fac_code, f"Code {fac_code}")
+            camp_code = details.get("campus_code") or "W"
+            camp_name = resolve_campus_role(camp_code) or f"Campus {camp_code}"
+            lvl_code = details.get("level_code") or "R"
+            lvl_name = resolve_study_level_role(lvl_code) or f"Level {lvl_code}"
+            prog_code = details.get("programme_code") or "N/A"
+
+            verified_at = details.get("verified_at") or "Unknown"
+            is_alumni = details.get("is_alumni")
+            grad_year = details.get("graduated_year")
+            card_expiry = details.get("card_expiry_date") or "*Not recorded*"
+            email_hash = details.get("student_email_hash")
+
+            status_str = "🎓 **TARUMT Alumni (Graduated)**" if is_alumni else "✅ **Active Verified Student**"
+            email_status_str = "🔒 **Email Verified (OTP Linked)**" if email_hash else "⚪ **Fast Verified (No Email Linked)**"
+
+            academic_body = (
+                f"• **Status:** {status_str}\n"
+                f"• **Email State:** {email_status_str}\n"
+                f"• **Faculty:** `{fac_name}` (`{fac_code}`)\n"
+                f"• **Campus:** `{camp_name}` (`{camp_code}`)\n"
+                f"• **Study Level:** `{lvl_name}` (`{lvl_code}`)\n"
+                f"• **Programme Code:** `{prog_code}`\n"
+                f"• **Initial Verified At:** `{verified_at}`\n"
+                f"• **Card Expiry Date:** `{card_expiry}`"
+            )
+            if is_alumni and grad_year:
+                academic_body += f"\n• **Graduation Cohort:** `{grad_year}`"
+
+            embed.add_field(name="📋 Verification & Academic Profile", value=academic_body, inline=False)
+        else:
+            embed.add_field(
+                name="📋 Verification Profile",
+                value="❌ **Not Verified**: No student record found in database.",
+                inline=False,
+            )
+
+        # 2. Server Member Context & Roles (if in current server)
+        if target_member:
+            created_at_str = target_member.created_at.strftime("%Y-%m-%d %H:%M:%S UTC") if target_member.created_at else "Unknown"
+            joined_at_str = target_member.joined_at.strftime("%Y-%m-%d %H:%M:%S UTC") if target_member.joined_at else "Unknown"
+
+            roles_list = [r.name for r in target_member.roles if r.name != "@everyone"]
+            roles_disp = ", ".join(f"`{r}`" for r in roles_list[:12]) if roles_list else "*No custom roles*"
+            if len(roles_list) > 12:
+                roles_disp += f" *(+{len(roles_list) - 12} more)*"
+
+            member_info = (
+                f"• **Joined Server:** `{joined_at_str}`\n"
+                f"• **Account Created:** `{created_at_str}`\n"
+                f"• **Server Nickname:** `{target_member.nick or target_member.name}`\n"
+                f"• **Current Roles ({len(roles_list)}):**\n  {roles_disp}"
+            )
+            embed.add_field(name=f"🏰 Server Member Details ({guild.name if guild else 'Current'})", value=member_info, inline=False)
+        elif target_user:
+            created_at_str = target_user.created_at.strftime("%Y-%m-%d %H:%M:%S UTC") if target_user.created_at else "Unknown"
+            embed.add_field(
+                name="🏰 Server Member Details",
+                value=f"⚠️ User is not currently in this server.\n• **Account Created:** `{created_at_str}`",
+                inline=False,
+            )
+
+        # 3. Academic Progression / Transitions History
+        transitions = await self.cog.db.get_academic_transitions_for_user(user_id)
+        if transitions:
+            t_lines = []
+            for t in transitions[-5:]:
+                from_fac = FACULTY_ROLES.get(t.get('from_faculty_code') or '', t.get('from_faculty_code') or '?')
+                to_fac = FACULTY_ROLES.get(t.get('to_faculty_code') or '', t.get('to_faculty_code') or '?')
+                from_lvl = resolve_study_level_role(t.get('from_level_code') or '') or t.get('from_level_code') or '?'
+                to_lvl = resolve_study_level_role(t.get('to_level_code') or '') or t.get('to_level_code') or '?'
+                t_date = t.get('transitioned_at') or 'Unknown'
+                t_lines.append(f"• `{t_date}`: **{from_fac}** ({from_lvl}) ➔ **{to_fac}** ({to_lvl})")
+            embed.add_field(name=f"🔄 Academic Transitions ({len(transitions)})", value="\n".join(t_lines), inline=False)
+
+        # 4. Guest Review Ticket History
+        if guild:
+            latest_ticket = await self.cog.db.get_latest_guest_ticket_for_user(guild.id, user_id)
+            if latest_ticket:
+                seq = format_ticket_seq(latest_ticket.get('ticket_seq') or latest_ticket.get('ticket_id'))
+                t_status = latest_ticket.get('status', 'OPEN')
+                t_created = latest_ticket.get('created_at', 'N/A')
+                t_reason = f"\n  *Reason:* \"{latest_ticket.get('reason')}\"" if latest_ticket.get('reason') else ""
+                embed.add_field(
+                    name="🎟️ Latest Guest Ticket",
+                    value=f"• **Ticket #{seq}** — `{t_status}` (Created: `{t_created}`){t_reason}",
+                    inline=False,
+                )
+
+        # 5. Audit Log History (Recent events involving user)
+        user_audit_logs = await self.cog.db.get_user_audit_logs(user_id, limit=4)
+        if user_audit_logs:
+            audit_lines = []
+            for log_row in user_audit_logs:
+                ts, lvl, ev_type, g_name, _, msg = log_row
+                g_str = f" [{g_name}]" if g_name else ""
+                audit_lines.append(f"• `{ts}` **[{ev_type}]**{g_str}: {msg}")
+            embed.add_field(name="📜 Recent Audit Activity", value="\n".join(audit_lines), inline=False)
+
+        embed.set_footer(text=f"TARVeri User Inspector • Queried by {self.admin_user}")
+        return embed
+
     # --- Button Callbacks ---
 
     async def _on_refresh_clicked(self, interaction: discord.Interaction) -> None:
@@ -840,6 +1023,10 @@ class AdminDashboardView(ui.View):
         )
 
         await self.update_message(interaction, embed=embed)
+
+    async def _on_user_lookup_clicked(self, interaction: discord.Interaction) -> None:
+        modal = UserLookupModal(self.cog, self)
+        await interaction.response.send_modal(modal)
 
     async def _on_unverify_clicked(self, interaction: discord.Interaction) -> None:
         modal = UnverifyModal(self.cog, self)
@@ -1045,4 +1232,69 @@ class AdminDashboardView(ui.View):
             f"• Verified Students: checked {reconcile_stats['checked']}, restored {reconcile_stats['restored']}\n"
             f"• Alumni: checked {alumni_stats['checked']}, restored {alumni_stats['restored']}"
         )
+        await self.update_message(interaction, embed=embed)
+
+    async def build_randomtag_embed(self, guild: discord.Guild | None) -> discord.Embed:
+        if not guild:
+            return discord.Embed(title="🎲 Random Tagging", description="Must be run in a server.", color=discord.Color.red())
+
+        random_service = getattr(self.cog.bot, "random_tag_service", None)
+        if not random_service:
+            return discord.Embed(title="🎲 Random Tagging", description="Service not initialized.", color=discord.Color.red())
+
+        config = await random_service.get_config(guild.id)
+        status_emoji = "🟢 Enabled" if config["is_enabled"] else "🔴 Disabled"
+        words_preview = ", ".join(f"`{w}`" for w in config["words_list"][:8])
+
+        embed = discord.Embed(
+            title=f"🎲 Random Tagging Control Panel — {guild.name}",
+            color=discord.Color.blue() if config["is_enabled"] else discord.Color.greyple(),
+            description=(
+                f"**Status:** {status_emoji}\n"
+                f"**Target Channel:** Strictly `#general`\n"
+                f"**Daily Limit:** `{config['current_daily_runs']} / {config['max_daily_runs']}` tags sent today\n"
+                f"**Odds:** `1 in {config['chance_denominator']}` chance per tick\n"
+                f"**Interval Window:** `{config['min_interval_minutes']}` - `{config['max_interval_minutes']}` mins (random with jitter)\n"
+                f"**Rotation Mode:** `{config['word_rotation_mode'].replace('_', ' ').title()}`\n\n"
+                f"**Configured Words ({len(config['words_list'])}):**\n{words_preview}"
+            ),
+        )
+        embed.set_footer(text="Use the buttons below to toggle or customize settings.")
+        return embed
+
+    async def _on_randomtag_toggle_clicked(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild:
+            return
+        await interaction.response.defer()
+        random_service = getattr(self.cog.bot, "random_tag_service", None)
+        if not random_service:
+            return
+        config = await random_service.get_config(interaction.guild.id)
+        new_state = not config["is_enabled"]
+        await random_service.update_config(interaction.guild.id, is_enabled=new_state)
+        embed = await self.build_randomtag_embed(interaction.guild)
+        await self.update_message(interaction, embed=embed)
+
+    async def _on_randomtag_config_clicked(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild:
+            return
+        random_service = getattr(self.cog.bot, "random_tag_service", None)
+        if not random_service:
+            return
+        from tarveri.cogs.random_tag_cog import RandomTagConfigModal
+        config = await random_service.get_config(interaction.guild.id)
+        modal = RandomTagConfigModal(random_service, config)
+        await interaction.response.send_modal(modal)
+
+    async def _on_randomtag_mode_clicked(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild:
+            return
+        await interaction.response.defer()
+        random_service = getattr(self.cog.bot, "random_tag_service", None)
+        if not random_service:
+            return
+        config = await random_service.get_config(interaction.guild.id)
+        new_mode = "round_robin" if config["word_rotation_mode"] == "random" else "random"
+        await random_service.update_config(interaction.guild.id, word_rotation_mode=new_mode)
+        embed = await self.build_randomtag_embed(interaction.guild)
         await self.update_message(interaction, embed=embed)

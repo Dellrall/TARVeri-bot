@@ -1108,6 +1108,96 @@ async def test_admin_mass_revocation_slash(tmp_path):
     await db.close()
 
 
+@pytest.mark.asyncio
+async def test_user_info_and_lookup_modal(tmp_path):
+    db_path = str(tmp_path / "user_lookup_test.db")
+    db = Database(db_path)
+    await db.connect()
+
+    bot = MagicMock()
+    service = MagicMock()
+    rate_limiter = MagicMock()
+    cog = AdminCog(
+        bot=bot,
+        db=db,
+        service=service,
+        rate_limiter=rate_limiter,
+        admin_role_name="Admin",
+    )
+
+    test_user_id = 987654321
+    # Seed verification in database
+    await db.record_verification(
+        discord_user_id=test_user_id,
+        student_id_hash="dummy_hash_123",
+        faculty_code="M",
+        campus_code="W",
+        level_code="R",
+        card_expiry_date="2027-10-31",
+    )
+    await db.log("INFO", "TEST_EVENT", "User performed verification", user_id=test_user_id)
+
+    # Build user details embed
+    admin_user = MagicMock(spec=discord.Member)
+    admin_user.guild_permissions.administrator = True
+    admin_user.id = 111111
+
+    guild = MagicMock(spec=discord.Guild)
+    guild.name = "Test Guild"
+    guild.id = 555
+
+    target_member = MagicMock(spec=discord.Member)
+    target_member.id = test_user_id
+    target_member.name = "StudentUser"
+    target_member.nick = "NickStudent"
+    target_member.created_at = None
+    target_member.joined_at = None
+    r1 = MagicMock(spec=discord.Role)
+    r1.name = "FOCS"
+    r2 = MagicMock(spec=discord.Role)
+    r2.name = "KL Main Campus"
+    target_member.roles = [r1, r2]
+    guild.get_member.return_value = target_member
+    bot.get_user.return_value = None
+
+    dashboard_view = AdminDashboardView(cog=cog, admin_user=admin_user, initial_category="moderation")
+    embed = await dashboard_view.build_user_details_embed(test_user_id, guild)
+
+    assert "Member Verification & Audit Record" in embed.title
+    assert any("FOCS" in f.value for f in embed.fields)
+    assert any("KL Main Campus" in f.value for f in embed.fields)
+    assert any("Recent Audit Activity" in f.name for f in embed.fields)
+
+    # Test slash command user_info
+    inter = MagicMock(spec=discord.Interaction)
+    inter.guild = guild
+    inter.user = admin_user
+    inter.response.defer = AsyncMock()
+    inter.followup.send = AsyncMock()
+
+    await cog.user_info.callback(cog, inter, user=target_member)
+    inter.followup.send.assert_called_once()
+    sent_embed = inter.followup.send.call_args[1]["embed"]
+    assert "Member Verification & Audit Record" in sent_embed.title
+
+    # Test UserLookupModal
+    from tarveri.cogs.admin_dashboard import UserLookupModal
+    modal = UserLookupModal(cog=cog, dashboard_view=dashboard_view)
+    modal.user_input._value = str(test_user_id)
+
+    modal_inter = MagicMock(spec=discord.Interaction)
+    modal_inter.guild = guild
+    modal_inter.user = admin_user
+    modal_inter.response.defer = AsyncMock()
+    modal_inter.followup.send = AsyncMock()
+
+    await modal.on_submit(modal_inter)
+    modal_inter.followup.send.assert_called_once()
+
+    await db.close()
+
+
+
 
 
 

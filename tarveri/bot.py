@@ -18,6 +18,7 @@ from tarveri.cogs.guest_cog import (
     GuestReviewThreadView,
     VerificationGatewayView,
 )
+from tarveri.cogs.random_tag_cog import RandomTagCog
 from tarveri.cogs.verification_cog import (
     StudentLifecycleResolutionView,
     VerificationCog,
@@ -31,6 +32,7 @@ from tarveri.services.graduation_watchdog_service import GraduationWatchdogServi
 from tarveri.services.guest_service import GuestService
 from tarveri.services.log_service import LogRotationService
 from tarveri.services.outage_service import OutageService
+from tarveri.services.random_tag_service import RandomTagService
 from tarveri.services.storage_guard_service import StorageGuardService
 from tarveri.services.update_checker import UpdateCheckerService
 from tarveri.services.verification_service import VerificationService
@@ -128,6 +130,7 @@ class TARVeriBot(commands.Bot):
             if settings.enable_storage_guard
             else None
         )
+        self.random_tag_service = RandomTagService(bot=self, db=self.db)
         self._is_ready_logged = False
         self._cmd_sync_task: asyncio.Task[None] | None = None
 
@@ -183,6 +186,12 @@ class TARVeriBot(commands.Bot):
                 verification_service=self.service,
             )
         )
+        await self.add_cog(
+            RandomTagCog(
+                bot=self,
+                service=self.random_tag_service,
+            )
+        )
 
         # Register persistent views so buttons work across bot reboots
         self.add_view(VerificationGatewayView(self.service, self.guest_service))
@@ -213,6 +222,9 @@ class TARVeriBot(commands.Bot):
 
         if self.storage_guard:
             self.storage_guard.start()
+
+        if self.random_tag_service:
+            await self.random_tag_service.start()
 
     async def on_disconnect(self) -> None:
         logger.debug("Discord gateway connection lost (disconnect event).")
@@ -304,6 +316,9 @@ class TARVeriBot(commands.Bot):
 
         if self.graduation_watchdog:
             self.graduation_watchdog.stop()
+
+        if self.random_tag_service:
+            self.random_tag_service.stop()
 
         try:
             if self.db.is_connected:

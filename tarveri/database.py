@@ -1407,6 +1407,23 @@ class Database:
             )
         return await cursor.fetchall()
 
+    async def get_user_audit_logs(
+        self, user_id: int, limit: int = 10, offset: int = 0
+    ) -> list[tuple[str, str, str, str | None, int | None, str]]:
+        """Retrieves audit log entries specifically associated with a user ID."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+        cursor = await self._conn.execute(
+            """SELECT timestamp, level, event_type, guild_name, user_id, message
+               FROM audit_log
+               WHERE user_id = ?
+               ORDER BY id DESC
+               LIMIT ? OFFSET ?""",
+            (user_id, limit, offset),
+        )
+        return await cursor.fetchall()
+
+
     async def get_guild_settings(
         self, guild_id: int
     ) -> tuple[int | None, int | None, str | None, int | None, str | None, int, int] | None:
