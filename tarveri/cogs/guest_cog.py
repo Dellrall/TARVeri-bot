@@ -694,34 +694,30 @@ def build_gateway_panel_embed(
     """
     if require_email:
         embed = discord.Embed(
-            title="🎓 Welcome to the Server!",
+            title="🎓 TARUMT Verification Gateway",
             description=(
-                f"Welcome to **{guild_name}**!\n\n"
-                "Please choose how you would like to gain access to the server:\n\n"
-                "• 🎓 **TARUMT Students:** Click **Verify TARUMT Student** to submit your Student ID and complete institutional email OTP verification (`@student.tarc.edu.my`).\n"
-                "• 🎟️ **Have a Referral Code:** Click **Enter Referral Code** if a current student gave you an invite code *(No email required)*.\n"
-                "• 🌐 **Outside Guests / Speakers:** Click **Apply as Guest** to request access from server staff *(No email required)*."
+                f"Welcome to **{guild_name}**!\n"
+                "Choose an option below to gain access:\n\n"
+                "🎓 **TARUMT Student** — Enter Student ID & verify `@student.tarc.edu.my` OTP\n"
+                "🎟️ **Referral Code** — Enter an invite code from an existing student\n"
+                "🌐 **Guest / Speaker** — Apply for visitor access"
             ),
-            color=discord.Color.gold(),
+            color=discord.Color.blue(),
         )
-        embed.add_field(
-            name="📧 Student Email Verification Required",
-            value="TARUMT students will receive a 6-digit verification code in their `@student.tarc.edu.my` inbox.\n*(Guests and external visitors do not need email verification)*.",
-            inline=False,
-        )
-        embed.set_footer(text="TARVeri Student & Guest Verification System • Student Email Verification Enabled")
+        embed.set_footer(text="🔒 Student email OTP required for TARUMT access • Guests exempt")
     else:
         embed = discord.Embed(
-            title="🎓 Welcome to the Server!",
+            title="🎓 TARUMT Verification Gateway",
             description=(
-                "Please choose how you would like to gain access to the server:\n\n"
-                "• 🎓 **TARUMT Students:** Click **Verify TARUMT Student** to submit your Student ID and receive your Faculty Role.\n"
-                "• 🎟️ **Have a Referral Code:** Click **Enter Referral Code** if a current student gave you an invite code.\n"
-                "• 🌐 **Outside Guests / Speakers:** Click **Apply as Guest** to request access from server administration."
+                f"Welcome to **{guild_name}**!\n"
+                "Choose an option below to gain access:\n\n"
+                "🎓 **TARUMT Student** — Enter Student ID to receive faculty roles\n"
+                "🎟️ **Referral Code** — Enter an invite code from an existing student\n"
+                "🌐 **Guest / Speaker** — Apply for visitor access"
             ),
-            color=discord.Color.dark_teal(),
+            color=discord.Color.blue(),
         )
-        embed.set_footer(text="TARVeri Student & Guest Verification System")
+        embed.set_footer(text="TARVeri Verification System • Fast & Secure")
     return embed
 
 
