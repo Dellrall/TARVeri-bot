@@ -853,7 +853,7 @@ def hash_email(email: str, secret: str) -> str:
 
 
 def mask_email(email: str) -> str:
-    """Masks an email for safe logs/displays (e.g., 2301234@student.tarc.edu.my -> 23***34@student.tarc.edu.my)."""
+    """Masks an email for safe logs/displays (e.g., name-wm24@student.tarc.edu.my -> na***24@student.tarc.edu.my)."""
     if not email or "@" not in email:
         return "***"
     local, domain = email.strip().split("@", 1)

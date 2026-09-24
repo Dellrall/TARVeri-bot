@@ -888,7 +888,7 @@ class AdminCog(commands.Cog, name="Admin"):
     )
     @app_commands.default_permissions(administrator=True)
     @app_commands.describe(
-        email="The institutional email address to blacklist (e.g. student@student.tarc.edu.my)",
+        email="The institutional email address to blacklist (e.g. name-wm24@student.tarc.edu.my)",
         reason="Reason for blacklisting this email",
     )
     async def blacklist_email(

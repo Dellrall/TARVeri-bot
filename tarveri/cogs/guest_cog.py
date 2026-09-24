@@ -119,7 +119,7 @@ class StudentVerificationModal(discord.ui.Modal, title="🎓 TARUMT Student Veri
     )
     student_email = discord.ui.TextInput(
         label="Student Email (@student.tarc.edu.my)",
-        placeholder="e.g. 23wmd09867@student.tarc.edu.my (Optional)",
+        placeholder="e.g. name-wm24@student.tarc.edu.my (Optional)",
         min_length=5,
         max_length=100,
         required=False,
@@ -151,10 +151,10 @@ class StudentVerificationModal(discord.ui.Modal, title="🎓 TARUMT Student Veri
         )
         if is_global_email_active and self.require_email:
             self.student_email.required = True
-            self.student_email.placeholder = f"e.g. {current_yy}wmd09867@student.tarc.edu.my (Required)"
+            self.student_email.placeholder = f"e.g. name-wm{current_yy}@student.tarc.edu.my (Required)"
         else:
             self.student_email.required = False
-            self.student_email.placeholder = f"e.g. {current_yy}wmd09867@student.tarc.edu.my (Optional)"
+            self.student_email.placeholder = f"e.g. name-wm{current_yy}@student.tarc.edu.my (Optional)"
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         raw_expiry = self.card_expiry.value.strip() if self.card_expiry.value else None
