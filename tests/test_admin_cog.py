@@ -591,9 +591,7 @@ async def test_admin_backfill_roles_command(tmp_path):
         cog, interaction, default_campus=campus_choice, default_level=level_choice, all_servers=False
     )
 
-    service.backfill_branch_roles.assert_called_once_with(
-        guild=guild, default_campus_code="P", default_level_code="R"
-    )
+    service.backfill_branch_roles.assert_called_once_with(guild=guild, default_campus_code="P", default_level_code="R")
     interaction.followup.send.assert_called_once()
     kwargs = interaction.followup.send.call_args[1]
     assert "embed" in kwargs
@@ -997,9 +995,7 @@ async def test_mass_revocation_approval_view_interactions(tmp_path):
     inter_admin.message.edit = AsyncMock()
 
     await view.children[0].callback(inter_admin)
-    service.execute_approved_mass_revocation.assert_called_once_with(
-        guild, action_id, admin=admin_user
-    )
+    service.execute_approved_mass_revocation.assert_called_once_with(guild, action_id, admin=admin_user)
     inter_admin.followup.send.assert_called_once_with("Executed successfully", ephemeral=True)
     inter_admin.message.edit.assert_called_once()
 
@@ -1025,9 +1021,7 @@ async def test_mass_revocation_approval_view_interactions(tmp_path):
     inter_admin_rej.message.edit = AsyncMock()
 
     await view.children[1].callback(inter_admin_rej)
-    service.reject_mass_revocation.assert_called_once_with(
-        guild, action_id_2, admin=admin_user
-    )
+    service.reject_mass_revocation.assert_called_once_with(guild, action_id_2, admin=admin_user)
     inter_admin_rej.followup.send.assert_called_once_with("Rejected successfully", ephemeral=True)
 
     await db.close()
@@ -1087,9 +1081,7 @@ async def test_admin_mass_revocation_slash(tmp_path):
     inter_app.followup.send = AsyncMock()
 
     await cog.mass_revocation.callback(cog, inter_app, action="approve", action_id=action_id)
-    service.execute_approved_mass_revocation.assert_called_once_with(
-        guild, action_id, admin=admin_user
-    )
+    service.execute_approved_mass_revocation.assert_called_once_with(guild, action_id, admin=admin_user)
     inter_app.followup.send.assert_called_once_with("Approved via slash", ephemeral=True)
 
     # 3. Reject action
@@ -1100,9 +1092,7 @@ async def test_admin_mass_revocation_slash(tmp_path):
     inter_rej.followup.send = AsyncMock()
 
     await cog.mass_revocation.callback(cog, inter_rej, action="reject", action_id=action_id)
-    service.reject_mass_revocation.assert_called_once_with(
-        guild, action_id, admin=admin_user
-    )
+    service.reject_mass_revocation.assert_called_once_with(guild, action_id, admin=admin_user)
     inter_rej.followup.send.assert_called_once_with("Rejected via slash", ephemeral=True)
 
     await db.close()
@@ -1182,6 +1172,7 @@ async def test_user_info_and_lookup_modal(tmp_path):
 
     # Test UserLookupModal
     from tarveri.cogs.admin_dashboard import UserLookupModal
+
     modal = UserLookupModal(cog=cog, dashboard_view=dashboard_view)
     modal.user_input._value = str(test_user_id)
 
@@ -1195,13 +1186,3 @@ async def test_user_info_and_lookup_modal(tmp_path):
     modal_inter.followup.send.assert_called_once()
 
     await db.close()
-
-
-
-
-
-
-
-
-
-

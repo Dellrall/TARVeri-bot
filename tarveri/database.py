@@ -109,7 +109,8 @@ def rotate_daily_backups(
         archive_files = [
             os.path.join(archives_dir, entry)
             for entry in os.listdir(archives_dir)
-            if os.path.isfile(os.path.join(archives_dir, entry)) and (entry.endswith(".gz") or entry.endswith(".tar.gz"))
+            if os.path.isfile(os.path.join(archives_dir, entry))
+            and (entry.endswith(".gz") or entry.endswith(".tar.gz"))
         ]
         archive_files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
         if len(archive_files) > max_archives:
@@ -144,9 +145,7 @@ def rotate_backups(
     # 1. Rotate daily subfolder
     daily_dir = os.path.join(backup_dir, "daily")
     if os.path.isdir(daily_dir):
-        _, del_dbs, del_archs = rotate_daily_backups(
-            daily_dir, max_uncompressed=max_backups, max_archives=max_archives
-        )
+        _, del_dbs, del_archs = rotate_daily_backups(daily_dir, max_uncompressed=max_backups, max_archives=max_archives)
         all_deleted.extend(del_dbs)
         all_deleted.extend(del_archs)
 
@@ -485,9 +484,7 @@ class Database:
             if col not in existing_veri_cols:
                 await self._conn.execute(f"ALTER TABLE verifications ADD COLUMN {col} {col_def};")
 
-        await self._conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_verifications_alumni ON verifications(is_alumni);"
-        )
+        await self._conn.execute("CREATE INDEX IF NOT EXISTS idx_verifications_alumni ON verifications(is_alumni);")
         await self._conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_verifications_expiry ON verifications(card_expiry_date);"
         )
@@ -520,9 +517,7 @@ class Database:
                    WHERE programme_code IS NULL AND campus_code IS NOT NULL AND faculty_code IS NOT NULL"""
             )
             if cursor.rowcount > 0:
-                logger.info(
-                    f"Backfilled programme_code for {cursor.rowcount} verification record(s)."
-                )
+                logger.info(f"Backfilled programme_code for {cursor.rowcount} verification record(s).")
         except Exception as e:
             logger.debug(f"Legacy programme_code backfill notice: {e}")
 
@@ -682,9 +677,7 @@ class Database:
         """Instance helper to list available database backups."""
         return list_backups(backup_dir=backup_dir)
 
-    async def restore_guild_settings_from_backup(
-        self, backup_path: str, guild_id: int | None = None
-    ) -> dict[str, Any]:
+    async def restore_guild_settings_from_backup(self, backup_path: str, guild_id: int | None = None) -> dict[str, Any]:
         """
         Restores guild_settings from a specified backup database (.db or .gz archive) into the current active database.
         If guild_id is provided, only that guild's settings are restored; otherwise all guilds are restored.
@@ -714,6 +707,7 @@ class Database:
         # If it's a gzip compressed archive (.gz), decompress to a temporary file
         if candidate_path.endswith(".gz"):
             import tempfile
+
             fd, temp_decompressed = tempfile.mkstemp(suffix=".db")
             os.close(fd)
             with gzip.open(candidate_path, "rb") as f_in, open(temp_decompressed, "wb") as f_out:
@@ -729,9 +723,7 @@ class Database:
                 except OSError as exc:
                     logger.debug("Could not remove temp decompressed backup: %s", exc)
 
-    async def _restore_guild_settings_from_db_file(
-        self, db_path: str, guild_id: int | None = None
-    ) -> dict[str, Any]:
+    async def _restore_guild_settings_from_db_file(self, db_path: str, guild_id: int | None = None) -> dict[str, Any]:
         restored_guilds = 0
         details: list[dict[str, Any]] = []
 
@@ -1126,9 +1118,7 @@ class Database:
             )
             return cursor.lastrowid or 0
 
-    async def get_academic_transitions_for_user(
-        self, discord_user_id: int
-    ) -> list[dict[str, Any]]:
+    async def get_academic_transitions_for_user(self, discord_user_id: int) -> list[dict[str, Any]]:
         """Retrieves full academic progression history for a student."""
         if not self._conn:
             raise RuntimeError("Database connection is not open.")
@@ -1232,9 +1222,7 @@ class Database:
             cursor = await conn.execute(sql, tuple(params))
             return cursor.rowcount > 0
 
-    async def get_expired_student_verifications(
-        self, before_date: str | None = None
-    ) -> list[dict[str, Any]]:
+    async def get_expired_student_verifications(self, before_date: str | None = None) -> list[dict[str, Any]]:
         """
         Retrieves active verified students (is_alumni = 0) whose card_expiry_date is on or before before_date.
         Defaults before_date to today (YYYY-MM-DD in Asia/Kuala_Lumpur).
@@ -1243,6 +1231,7 @@ class Database:
             raise RuntimeError("Database connection is not open.")
         if not before_date:
             from tarveri.config import get_configured_tz
+
             now_dt = datetime.now(get_configured_tz())
             before_date = now_dt.strftime("%Y-%m-%d")
 
@@ -1325,9 +1314,7 @@ class Database:
         """Returns a list of all user IDs with active alumni status."""
         if not self._conn:
             raise RuntimeError("Database connection is not open.")
-        cursor = await self._conn.execute(
-            "SELECT discord_user_id FROM verifications WHERE is_alumni = 1"
-        )
+        cursor = await self._conn.execute("SELECT discord_user_id FROM verifications WHERE is_alumni = 1")
         rows = await cursor.fetchall()
         return [r[0] for r in rows]
 
@@ -1342,9 +1329,7 @@ class Database:
     async def delete_verification(self, discord_user_id: int) -> bool:
         """Unlinks a Discord account from its student ID. Returns True if record existed."""
         async with self.transaction() as conn:
-            cursor = await conn.execute(
-                "DELETE FROM verifications WHERE discord_user_id = ?", (discord_user_id,)
-            )
+            cursor = await conn.execute("DELETE FROM verifications WHERE discord_user_id = ?", (discord_user_id,))
             return cursor.rowcount > 0
 
     async def total_verified(self) -> int:
@@ -1422,7 +1407,6 @@ class Database:
             (user_id, limit, offset),
         )
         return await cursor.fetchall()
-
 
     async def get_guild_settings(
         self, guild_id: int
@@ -1519,9 +1503,7 @@ class Database:
         """
         if not self._conn:
             raise RuntimeError("Database connection is not open.")
-        cursor = await self._conn.execute(
-            "SELECT COUNT(*), COUNT(student_email_hash) FROM verifications"
-        )
+        cursor = await self._conn.execute("SELECT COUNT(*), COUNT(student_email_hash) FROM verifications")
         row = await cursor.fetchone()
         total_students = row[0] if row else 0
         email_verified_students = row[1] if row else 0
@@ -1547,7 +1529,6 @@ class Database:
             "opted_in_guilds": opted_in_guilds,
             "total_configured_guilds": total_configured_guilds,
         }
-
 
     async def set_guild_welcome_channel(self, guild_id: int, channel_id: int | None) -> None:
         """Sets or clears the welcome channel ID for a guild."""
@@ -1654,10 +1635,7 @@ class Database:
             )
         return cleared
 
-
-    async def create_referral_code(
-        self, code: str, guild_id: int, referrer_discord_id: int, expires_at: str
-    ) -> None:
+    async def create_referral_code(self, code: str, guild_id: int, referrer_discord_id: int, expires_at: str) -> None:
         """Saves a newly generated referral code."""
         ts = now_formatted()
         async with self.transaction() as conn:
@@ -1818,7 +1796,18 @@ class Database:
                 """INSERT INTO guest_tickets
                    (guild_id, ticket_seq, applicant_id, referrer_id, channel_id, referral_code, reason, status, created_at, pinged_admin_ids, last_pinged_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?)""",
-                (guild_id, seq, applicant_id, referrer_id, channel_id, referral_code, reason, ts, pinged_admin_ids, last_pinged_at or ts),
+                (
+                    guild_id,
+                    seq,
+                    applicant_id,
+                    referrer_id,
+                    channel_id,
+                    referral_code,
+                    reason,
+                    ts,
+                    pinged_admin_ids,
+                    last_pinged_at or ts,
+                ),
             )
             return cursor.lastrowid or 0
 
@@ -1872,9 +1861,7 @@ class Database:
             return None
         return self._row_to_ticket(row)
 
-    async def get_open_guest_ticket_for_applicant(
-        self, guild_id: int, applicant_id: int
-    ) -> dict[str, Any] | None:
+    async def get_open_guest_ticket_for_applicant(self, guild_id: int, applicant_id: int) -> dict[str, Any] | None:
         """Checks if the user already has an active open ticket in this guild."""
         if not self._conn:
             raise RuntimeError("Database connection is not open.")
@@ -1891,9 +1878,7 @@ class Database:
             return None
         return self._row_to_ticket(row)
 
-    async def get_latest_guest_ticket_for_user(
-        self, guild_id: int, applicant_id: int
-    ) -> dict[str, Any] | None:
+    async def get_latest_guest_ticket_for_user(self, guild_id: int, applicant_id: int) -> dict[str, Any] | None:
         """Fetches the newest guest ticket for an applicant in this guild."""
         if not self._conn:
             raise RuntimeError("Database connection is not open.")
@@ -2030,9 +2015,7 @@ class Database:
             )
             return cursor.rowcount
 
-    async def revoke_active_referrals_for_user(
-        self, guild_id: int, user_id: int, status: str = "REVOKED"
-    ) -> int:
+    async def revoke_active_referrals_for_user(self, guild_id: int, user_id: int, status: str = "REVOKED") -> int:
         """Revokes all active referral codes generated by a user in a guild."""
         if not self._conn:
             return 0
@@ -2113,7 +2096,15 @@ class Database:
                        reason = excluded.reason,
                        blacklisted_by = excluded.blacklisted_by,
                        created_at = excluded.created_at""",
-                (guild_id, clean_type, clean_value, display_mask or clean_value, reason or "No reason specified", blacklisted_by, ts),
+                (
+                    guild_id,
+                    clean_type,
+                    clean_value,
+                    display_mask or clean_value,
+                    reason or "No reason specified",
+                    blacklisted_by,
+                    ts,
+                ),
             )
         return True
 
@@ -2178,7 +2169,7 @@ class Database:
             return None
 
         query = f"""SELECT reason, target_type, target_value, display_mask, created_at FROM guild_blacklists
-                    WHERE guild_id = ? AND ({' OR '.join(conditions)})
+                    WHERE guild_id = ? AND ({" OR ".join(conditions)})
                     LIMIT 1"""
 
         cursor = await self._conn.execute(query, tuple(params))
@@ -2530,6 +2521,3 @@ class Database:
                 (email_hash,),
             )
             return cursor.rowcount > 0
-
-
-

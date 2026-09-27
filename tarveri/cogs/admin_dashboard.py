@@ -460,11 +460,15 @@ class AdminDashboardView(ui.View):
             btn_set_admin_role.callback = self._on_set_admin_role_clicked
             self.add_item(btn_set_admin_role)
 
-            btn_toggle_email = ui.Button(label="Toggle Email Verification", style=discord.ButtonStyle.primary, emoji="📧")
+            btn_toggle_email = ui.Button(
+                label="Toggle Email Verification", style=discord.ButtonStyle.primary, emoji="📧"
+            )
             btn_toggle_email.callback = self._on_toggle_email_verification_clicked
             self.add_item(btn_toggle_email)
 
-            btn_toggle_email_enforce = ui.Button(label="Toggle Role Enforcement", style=discord.ButtonStyle.secondary, emoji="🛡️")
+            btn_toggle_email_enforce = ui.Button(
+                label="Toggle Role Enforcement", style=discord.ButtonStyle.secondary, emoji="🛡️"
+            )
             btn_toggle_email_enforce.callback = self._on_toggle_email_enforcement_clicked
             self.add_item(btn_toggle_email_enforce)
 
@@ -500,12 +504,16 @@ class AdminDashboardView(ui.View):
             btn_create_backup.callback = self._on_create_backup_clicked
             self.add_item(btn_create_backup)
 
-            btn_restore_settings = ui.Button(label="Restore Latest Settings", style=discord.ButtonStyle.secondary, emoji="🔄")
+            btn_restore_settings = ui.Button(
+                label="Restore Latest Settings", style=discord.ButtonStyle.secondary, emoji="🔄"
+            )
             btn_restore_settings.callback = self._on_restore_settings_clicked
             self.add_item(btn_restore_settings)
 
         elif self.current_category == "logs":
-            btn_archive_logs = ui.Button(label="Run 10-Day Archival (.tar.gz)", style=discord.ButtonStyle.success, emoji="🗜️")
+            btn_archive_logs = ui.Button(
+                label="Run 10-Day Archival (.tar.gz)", style=discord.ButtonStyle.success, emoji="🗜️"
+            )
             btn_archive_logs.callback = self._on_archive_logs_clicked
             self.add_item(btn_archive_logs)
 
@@ -514,11 +522,15 @@ class AdminDashboardView(ui.View):
             self.add_item(btn_tail_logs)
 
         elif self.current_category == "panel":
-            btn_deploy_here = ui.Button(label="Deploy to Current Channel", style=discord.ButtonStyle.success, emoji="🚀")
+            btn_deploy_here = ui.Button(
+                label="Deploy to Current Channel", style=discord.ButtonStyle.success, emoji="🚀"
+            )
             btn_deploy_here.callback = self._on_deploy_here_clicked
             self.add_item(btn_deploy_here)
 
-            btn_deploy_pick = ui.Button(label="Deploy to Another Channel...", style=discord.ButtonStyle.secondary, emoji="📢")
+            btn_deploy_pick = ui.Button(
+                label="Deploy to Another Channel...", style=discord.ButtonStyle.secondary, emoji="📢"
+            )
             btn_deploy_pick.callback = lambda i: self._show_channel_select(i, "panel_deploy")
             self.add_item(btn_deploy_pick)
 
@@ -604,7 +616,11 @@ class AdminDashboardView(ui.View):
         )
         embed.add_field(name="📧 Email Verified Students", value=email_status_text, inline=True)
         if guild:
-            opt_status = "🔒 **Mandatory (Opted In)**" if email_stats["guild_opted_in"] else "⚪ **Optional (Default: Opted Out)**"
+            opt_status = (
+                "🔒 **Mandatory (Opted In)**"
+                if email_stats["guild_opted_in"]
+                else "⚪ **Optional (Default: Opted Out)**"
+            )
             embed.add_field(name="📧 Server Email Policy", value=opt_status, inline=True)
 
         if faculty_counts:
@@ -635,7 +651,11 @@ class AdminDashboardView(ui.View):
         h_id = settings[1] if settings else None
         g_role = settings[2] if settings and len(settings) > 2 and settings[2] else "Guest"
         r_id = settings[3] if settings and len(settings) > 3 else None
-        adm_role = settings[4] if settings and len(settings) > 4 and settings[4] else f"Auto-detect ({self.cog.admin_role_name})"
+        adm_role = (
+            settings[4]
+            if settings and len(settings) > 4 and settings[4]
+            else f"Auto-detect ({self.cog.admin_role_name})"
+        )
         is_email_opted_in = bool(settings[5]) if settings and len(settings) > 5 else False
         is_email_enforced = bool(settings[6]) if settings and len(settings) > 6 else False
 
@@ -662,7 +682,11 @@ class AdminDashboardView(ui.View):
         embed.add_field(name="🛡️ Admin / Reviewer Role", value=f"`{adm_role}`", inline=True)
         email_mode_str = "🔒 **Mandatory (Opted In)**" if is_email_opted_in else "⚪ **Optional (Default: Opted Out)**"
         embed.add_field(name="📧 Email Verification Policy", value=email_mode_str, inline=True)
-        enforce_mode_str = "🔴 **Enforced (Retroactive Stripping)**" if is_email_enforced else "🟢 **Disabled (Existing Roles Preserved)**"
+        enforce_mode_str = (
+            "🔴 **Enforced (Retroactive Stripping)**"
+            if is_email_enforced
+            else "🟢 **Disabled (Existing Roles Preserved)**"
+        )
         embed.add_field(name="🛡️ Email Role Enforcement", value=enforce_mode_str, inline=True)
 
         embed.set_footer(text="Use the buttons below to modify channels, roles, or reset to defaults.")
@@ -670,7 +694,9 @@ class AdminDashboardView(ui.View):
 
     async def build_diagnose_embed(self, guild: discord.Guild | None) -> discord.Embed:
         if not guild:
-            return discord.Embed(title="🩺 Diagnostics", description="Must be run inside a Discord server.", color=discord.Color.red())
+            return discord.Embed(
+                title="🩺 Diagnostics", description="Must be run inside a Discord server.", color=discord.Color.red()
+            )
 
         warnings = self.cog.service.diagnose_guild_permissions(guild)
         embed = discord.Embed(
@@ -734,7 +760,9 @@ class AdminDashboardView(ui.View):
 
     async def build_tickets_embed(self, guild: discord.Guild | None, status_filter: str | None = None) -> discord.Embed:
         if not guild:
-            return discord.Embed(title="🎟️ Guest Review Tickets", description="Must be run in a server.", color=discord.Color.red())
+            return discord.Embed(
+                title="🎟️ Guest Review Tickets", description="Must be run in a server.", color=discord.Color.red()
+            )
 
         tickets = await self.cog.db.list_guest_tickets(guild.id, status=status_filter, limit=6)
         embed = discord.Embed(
@@ -742,7 +770,9 @@ class AdminDashboardView(ui.View):
             color=discord.Color.dark_teal(),
         )
         if not tickets:
-            embed.description = f"No guest review tickets found{' with status ' + status_filter if status_filter else ''}."
+            embed.description = (
+                f"No guest review tickets found{' with status ' + status_filter if status_filter else ''}."
+            )
             return embed
 
         embed.description = f"Showing **{len(tickets)}** recent ticket(s):"
@@ -764,7 +794,7 @@ class AdminDashboardView(ui.View):
 
             thread_mention = f"<#{t['channel_id']}>"
             applicant_mention = f"<@{t['applicant_id']}>"
-            reason_info = f"\n> *\"{t['close_reason']}\"*" if t.get("close_reason") else ""
+            reason_info = f'\n> *"{t["close_reason"]}"*' if t.get("close_reason") else ""
 
             embed.add_field(
                 name=f"{status_emoji} Ticket #{seq_code} — {t_status}",
@@ -775,8 +805,12 @@ class AdminDashboardView(ui.View):
 
     async def build_backup_embed(self, guild: discord.Guild | None) -> discord.Embed:
         settings = getattr(self.cog.bot, "settings", None)
-        backup_dir = settings.backup_dir if settings and isinstance(getattr(settings, "backup_dir", None), str) else "backups"
-        max_backups = settings.max_backups if settings and isinstance(getattr(settings, "max_backups", None), int) else 10
+        backup_dir = (
+            settings.backup_dir if settings and isinstance(getattr(settings, "backup_dir", None), str) else "backups"
+        )
+        max_backups = (
+            settings.max_backups if settings and isinstance(getattr(settings, "max_backups", None), int) else 10
+        )
         backups = self.cog.db.list_backups(backup_dir=backup_dir)
         embed = discord.Embed(
             title="💾 Database Backups & Snapshot Snapshots",
@@ -797,7 +831,11 @@ class AdminDashboardView(ui.View):
     async def build_logs_embed(self, guild: discord.Guild | None) -> discord.Embed:
         settings = getattr(self.cog.bot, "settings", None)
         logs_dir = settings.logs_dir if settings and isinstance(getattr(settings, "logs_dir", None), str) else "logs"
-        tz_name = settings.timezone_name if settings and isinstance(getattr(settings, "timezone_name", None), str) else "Asia/Kuala_Lumpur"
+        tz_name = (
+            settings.timezone_name
+            if settings and isinstance(getattr(settings, "timezone_name", None), str)
+            else "Asia/Kuala_Lumpur"
+        )
 
         daily_logs = list_daily_logs(logs_dir=logs_dir, tz_name=tz_name)
         archives = list_log_archives(logs_dir=logs_dir)
@@ -807,16 +845,30 @@ class AdminDashboardView(ui.View):
             color=discord.Color.blue(),
         )
         if daily_logs:
-            daily_desc = [f"• 📄 `{dl['filename']}` — {dl['size_bytes'] / 1024:.1f} KB ({dl['lines']} lines)" for dl in daily_logs[:5]]
-            embed.add_field(name=f"Active Daily Logs ({len(daily_logs)} total)", value="\n".join(daily_desc), inline=False)
+            daily_desc = [
+                f"• 📄 `{dl['filename']}` — {dl['size_bytes'] / 1024:.1f} KB ({dl['lines']} lines)"
+                for dl in daily_logs[:5]
+            ]
+            embed.add_field(
+                name=f"Active Daily Logs ({len(daily_logs)} total)", value="\n".join(daily_desc), inline=False
+            )
         else:
             embed.add_field(name="Active Daily Logs", value="No daily log files found.", inline=False)
 
         if archives:
-            archive_desc = [f"• 📦 `{ar['filename']}` — {ar['size_bytes'] / 1024:.1f} KB ({ar['file_count']} logs bundled)" for ar in archives[:5]]
-            embed.add_field(name=f"10-Day Archives ({len(archives)} total)", value="\n".join(archive_desc), inline=False)
+            archive_desc = [
+                f"• 📦 `{ar['filename']}` — {ar['size_bytes'] / 1024:.1f} KB ({ar['file_count']} logs bundled)"
+                for ar in archives[:5]
+            ]
+            embed.add_field(
+                name=f"10-Day Archives ({len(archives)} total)", value="\n".join(archive_desc), inline=False
+            )
         else:
-            embed.add_field(name="10-Day Archives", value="No archives created yet (logs $>10$ days old are compressed).", inline=False)
+            embed.add_field(
+                name="10-Day Archives",
+                value="No archives created yet (logs $>10$ days old are compressed).",
+                inline=False,
+            )
 
         return embed
 
@@ -864,7 +916,11 @@ class AdminDashboardView(ui.View):
         target_user = self.cog.bot.get_user(user_id)
         target_member = guild.get_member(user_id) if guild else None
 
-        user_avatar_url = target_user.display_avatar.url if target_user else (target_member.display_avatar.url if target_member else None)
+        user_avatar_url = (
+            target_user.display_avatar.url
+            if target_user
+            else (target_member.display_avatar.url if target_member else None)
+        )
 
         details = await self.cog.db.get_verification_details(user_id)
 
@@ -893,7 +949,9 @@ class AdminDashboardView(ui.View):
             email_hash = details.get("student_email_hash")
 
             status_str = "🎓 **TARUMT Alumni (Graduated)**" if is_alumni else "✅ **Active Verified Student**"
-            email_status_str = "🔒 **Email Verified (OTP Linked)**" if email_hash else "⚪ **Fast Verified (No Email Linked)**"
+            email_status_str = (
+                "🔒 **Email Verified (OTP Linked)**" if email_hash else "⚪ **Fast Verified (No Email Linked)**"
+            )
 
             academic_body = (
                 f"• **Status:** {status_str}\n"
@@ -918,8 +976,12 @@ class AdminDashboardView(ui.View):
 
         # 2. Server Member Context & Roles (if in current server)
         if target_member:
-            created_at_str = target_member.created_at.strftime("%Y-%m-%d %H:%M:%S UTC") if target_member.created_at else "Unknown"
-            joined_at_str = target_member.joined_at.strftime("%Y-%m-%d %H:%M:%S UTC") if target_member.joined_at else "Unknown"
+            created_at_str = (
+                target_member.created_at.strftime("%Y-%m-%d %H:%M:%S UTC") if target_member.created_at else "Unknown"
+            )
+            joined_at_str = (
+                target_member.joined_at.strftime("%Y-%m-%d %H:%M:%S UTC") if target_member.joined_at else "Unknown"
+            )
 
             roles_list = [r.name for r in target_member.roles if r.name != "@everyone"]
             roles_disp = ", ".join(f"`{r}`" for r in roles_list[:12]) if roles_list else "*No custom roles*"
@@ -932,9 +994,13 @@ class AdminDashboardView(ui.View):
                 f"• **Server Nickname:** `{target_member.nick or target_member.name}`\n"
                 f"• **Current Roles ({len(roles_list)}):**\n  {roles_disp}"
             )
-            embed.add_field(name=f"🏰 Server Member Details ({guild.name if guild else 'Current'})", value=member_info, inline=False)
+            embed.add_field(
+                name=f"🏰 Server Member Details ({guild.name if guild else 'Current'})", value=member_info, inline=False
+            )
         elif target_user:
-            created_at_str = target_user.created_at.strftime("%Y-%m-%d %H:%M:%S UTC") if target_user.created_at else "Unknown"
+            created_at_str = (
+                target_user.created_at.strftime("%Y-%m-%d %H:%M:%S UTC") if target_user.created_at else "Unknown"
+            )
             embed.add_field(
                 name="🏰 Server Member Details",
                 value=f"⚠️ User is not currently in this server.\n• **Account Created:** `{created_at_str}`",
@@ -946,22 +1012,24 @@ class AdminDashboardView(ui.View):
         if transitions:
             t_lines = []
             for t in transitions[-5:]:
-                from_fac = FACULTY_ROLES.get(t.get('from_faculty_code') or '', t.get('from_faculty_code') or '?')
-                to_fac = FACULTY_ROLES.get(t.get('to_faculty_code') or '', t.get('to_faculty_code') or '?')
-                from_lvl = resolve_study_level_role(t.get('from_level_code') or '') or t.get('from_level_code') or '?'
-                to_lvl = resolve_study_level_role(t.get('to_level_code') or '') or t.get('to_level_code') or '?'
-                t_date = t.get('transitioned_at') or 'Unknown'
+                from_fac = FACULTY_ROLES.get(t.get("from_faculty_code") or "", t.get("from_faculty_code") or "?")
+                to_fac = FACULTY_ROLES.get(t.get("to_faculty_code") or "", t.get("to_faculty_code") or "?")
+                from_lvl = resolve_study_level_role(t.get("from_level_code") or "") or t.get("from_level_code") or "?"
+                to_lvl = resolve_study_level_role(t.get("to_level_code") or "") or t.get("to_level_code") or "?"
+                t_date = t.get("transitioned_at") or "Unknown"
                 t_lines.append(f"• `{t_date}`: **{from_fac}** ({from_lvl}) ➔ **{to_fac}** ({to_lvl})")
-            embed.add_field(name=f"🔄 Academic Transitions ({len(transitions)})", value="\n".join(t_lines), inline=False)
+            embed.add_field(
+                name=f"🔄 Academic Transitions ({len(transitions)})", value="\n".join(t_lines), inline=False
+            )
 
         # 4. Guest Review Ticket History
         if guild:
             latest_ticket = await self.cog.db.get_latest_guest_ticket_for_user(guild.id, user_id)
             if latest_ticket:
-                seq = format_ticket_seq(latest_ticket.get('ticket_seq') or latest_ticket.get('ticket_id'))
-                t_status = latest_ticket.get('status', 'OPEN')
-                t_created = latest_ticket.get('created_at', 'N/A')
-                t_reason = f"\n  *Reason:* \"{latest_ticket.get('reason')}\"" if latest_ticket.get('reason') else ""
+                seq = format_ticket_seq(latest_ticket.get("ticket_seq") or latest_ticket.get("ticket_id"))
+                t_status = latest_ticket.get("status", "OPEN")
+                t_created = latest_ticket.get("created_at", "N/A")
+                t_reason = f'\n  *Reason:* "{latest_ticket.get("reason")}"' if latest_ticket.get("reason") else ""
                 embed.add_field(
                     name="🎟️ Latest Guest Ticket",
                     value=f"• **Ticket #{seq}** — `{t_status}` (Created: `{t_created}`){t_reason}",
@@ -1098,7 +1166,11 @@ class AdminDashboardView(ui.View):
         curr = await self.cog.db.is_guild_email_enforcement_enabled(interaction.guild.id)
         new_val = not curr
         await self.cog.db.set_guild_email_enforcement(interaction.guild.id, new_val)
-        status_word = "🔴 **ENFORCED (Retroactive Role Stripping Active)**" if new_val else "🟢 **DISABLED (Existing Roles Preserved)**"
+        status_word = (
+            "🔴 **ENFORCED (Retroactive Role Stripping Active)**"
+            if new_val
+            else "🟢 **DISABLED (Existing Roles Preserved)**"
+        )
         await self.cog.db.log(
             "INFO",
             "GUILD_EMAIL_ENFORCEMENT_TOGGLED",
@@ -1161,7 +1233,9 @@ class AdminDashboardView(ui.View):
         embed = await self.build_logs_embed(interaction.guild)
         if results:
             total_saved = sum(r["space_saved_bytes"] for r in results) / 1024
-            embed.description = f"✅ Successfully created **{len(results)}** archive(s), saving **{total_saved:.1f} KB**."
+            embed.description = (
+                f"✅ Successfully created **{len(results)}** archive(s), saving **{total_saved:.1f} KB**."
+            )
         else:
             embed.description = "ℹ️ No daily logs older than 10 days needed compression."
         await self.update_message(interaction, embed=embed)
@@ -1211,9 +1285,7 @@ class AdminDashboardView(ui.View):
             )
 
         email_required = (
-            await self.cog.db.is_guild_email_verification_enabled(interaction.guild.id)
-            if interaction.guild
-            else False
+            await self.cog.db.is_guild_email_verification_enabled(interaction.guild.id) if interaction.guild else False
         )
         guild_name = interaction.guild.name if interaction.guild else "the Server"
         embed = build_gateway_panel_embed(guild_name=guild_name, require_email=email_required)
@@ -1247,11 +1319,15 @@ class AdminDashboardView(ui.View):
 
     async def build_randomtag_embed(self, guild: discord.Guild | None) -> discord.Embed:
         if not guild:
-            return discord.Embed(title="🎲 Random Tagging", description="Must be run in a server.", color=discord.Color.red())
+            return discord.Embed(
+                title="🎲 Random Tagging", description="Must be run in a server.", color=discord.Color.red()
+            )
 
         random_service = getattr(self.cog.bot, "random_tag_service", None)
         if not random_service:
-            return discord.Embed(title="🎲 Random Tagging", description="Service not initialized.", color=discord.Color.red())
+            return discord.Embed(
+                title="🎲 Random Tagging", description="Service not initialized.", color=discord.Color.red()
+            )
 
         config = await random_service.get_config(guild.id)
         status_emoji = "🟢 Enabled" if config["is_enabled"] else "🔴 Disabled"
@@ -1293,6 +1369,7 @@ class AdminDashboardView(ui.View):
         if not random_service:
             return
         from tarveri.cogs.random_tag_cog import RandomTagConfigModal
+
         config = await random_service.get_config(interaction.guild.id)
         modal = RandomTagConfigModal(random_service, config)
         await interaction.response.send_modal(modal)

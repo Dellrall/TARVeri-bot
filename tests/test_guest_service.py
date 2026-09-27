@@ -727,6 +727,7 @@ async def test_ticket_escalation_lifecycle(tmp_path):
     async def empty_history(*args, **kwargs):
         if False:
             yield None
+
     thread.history = empty_history
 
     success, msg, _ = await service.open_guest_review_ticket(
@@ -853,7 +854,9 @@ async def test_reconcile_downtime_state(tmp_path):
     summary = await service.reconcile_downtime_state()
 
     assert summary["expired_referrals"] == 1
-    assert summary["reconciled_tickets"] == 3  # ticket1 (applicant left), ticket2 (referrer left), ticket3 (thread deleted)
+    assert (
+        summary["reconciled_tickets"] == 3
+    )  # ticket1 (applicant left), ticket2 (referrer left), ticket3 (thread deleted)
     assert summary["reconciled_referrals"] == 1  # TAR-ORPHANED
 
     # Verify DB statuses
@@ -1166,4 +1169,3 @@ async def test_close_guest_ticket_manually_without_kicking(tmp_path):
     assert ref["status"] == "CLOSED"
 
     await db.close()
-

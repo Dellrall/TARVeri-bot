@@ -115,6 +115,7 @@ def test_validate_student_id_invalid():
 
 def test_settings_from_env(monkeypatch):
     from tarveri.config import Settings
+
     monkeypatch.setenv("TARVERI_BOT_TOKEN", "mock_token")
     monkeypatch.setenv("TARVERI_ID_HASH_SECRET", "mock_secret")
     monkeypatch.setenv("TARVERI_UPDATE_STREAM", "refactor/modular-optimization")
@@ -137,6 +138,7 @@ def test_settings_from_env(monkeypatch):
 
 def test_settings_legacy_env_fallbacks(monkeypatch):
     from tarveri.config import Settings
+
     # Clear any TARVERI_* vars
     monkeypatch.delenv("TARVERI_BOT_TOKEN", raising=False)
     monkeypatch.delenv("TARVERI_ID_HASH_SECRET", raising=False)
@@ -156,7 +158,6 @@ def test_settings_legacy_env_fallbacks(monkeypatch):
     assert settings.db_path == "legacy_tarveri.db"
     assert settings.admin_role_name == "Legacy Admin"
     assert settings.timezone_name == "Asia/Kuala_Lumpur"
-
 
 
 def test_role_help_keywords_pattern():
@@ -309,8 +310,3 @@ def test_role_resolvers_and_bounce_patterns():
     # Ignored sending quota errors
     is_bounce3, _, _ = is_smtp_bounce_error("550 Daily sending limit exceeded")
     assert is_bounce3 is False
-
-
-
-
-

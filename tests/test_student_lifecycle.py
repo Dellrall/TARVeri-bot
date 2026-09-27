@@ -223,9 +223,7 @@ async def test_on_message_expired_student_prompt(tmp_path):
 
     user_id = 776655
     id_hash = hash_student_id("21WMR11111", "secret")
-    await db.record_verification(
-        user_id, id_hash, "M", campus_code="W", level_code="R", card_expiry_date="2024-05-31"
-    )
+    await db.record_verification(user_id, id_hash, "M", campus_code="W", level_code="R", card_expiry_date="2024-05-31")
 
     guild = MagicMock(spec=discord.Guild)
     guild.id = 111222
@@ -417,9 +415,7 @@ async def test_student_verification_modal_in_guest_cog():
     await modal.on_submit(interaction)
 
     interaction.response.defer.assert_called_once()
-    service.perform_verification.assert_called_once_with(
-        interaction.user, "23WMD09867", raw_expiry_date="10/26"
-    )
+    service.perform_verification.assert_called_once_with(interaction.user, "23WMD09867", raw_expiry_date="10/26")
     interaction.followup.send.assert_called_once()
 
 
@@ -928,8 +924,3 @@ async def test_dropout_slash_command(tmp_path):
     assert isinstance(modal_arg, StudentDropoutConfirmModal)
 
     await db.close()
-
-
-
-
-

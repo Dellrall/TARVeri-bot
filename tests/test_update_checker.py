@@ -84,9 +84,7 @@ async def test_update_checker_custom_stream_override():
             MagicMock(stdout="1\n", returncode=0),  # count
         ]
 
-        is_avail, count, local_h, remote_h, target_stream = await checker.check_for_updates(
-            custom_stream="beta"
-        )
+        is_avail, count, local_h, remote_h, target_stream = await checker.check_for_updates(custom_stream="beta")
         assert is_avail is True
         assert count == 1
         assert target_stream == "origin/beta"
@@ -172,6 +170,7 @@ async def test_update_checker_dm_forbidden_exception():
 @pytest.mark.asyncio
 async def test_update_checker_service_lifecycle():
     import asyncio
+
     bot = MagicMock()
     db = MagicMock(spec=Database)
 
@@ -191,7 +190,3 @@ async def test_update_checker_service_lifecycle():
     except asyncio.CancelledError:
         pass
     assert checker._task.cancelled() or checker._task.done()
-
-
-
-

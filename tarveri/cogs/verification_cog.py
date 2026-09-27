@@ -91,7 +91,7 @@ class AlumniClaimModal(discord.ui.Modal, title="TARUMT Alumni Transition"):
                 f"🎉 **{interaction.user.mention}** has successfully registered their **TARUMT Alumni** status!\n\n"
                 f"• **Class Cohort**: Class of {result['graduated_year']}\n"
                 f"• **Faculty**: {result['faculty_name']}\n"
-                + (f"• **Programme**: {result['programme']}\n" if result['programme'] else "")
+                + (f"• **Programme**: {result['programme']}\n" if result["programme"] else "")
                 + f"\n🏷️ **`TARUMT Alumni`** role assigned in {result['guilds_updated']} server(s).\n"
                 f"🪪 **`❖ ALUMNI`** badge unlocked on your Digital Campus Card (`/card`)."
             ),
@@ -837,9 +837,7 @@ class VerificationModal(discord.ui.Modal, title="🎓 TARUMT Student Verificatio
         self.student_id.placeholder = f"e.g. {current_yy}WMD09867"
         self.card_expiry.placeholder = f"e.g. 10/{(int(current_yy) + 2) % 100:02d} (Optional)"
 
-        is_global_email_active = bool(
-            self.email_service and getattr(self.email_service, "is_enabled", False) is True
-        )
+        is_global_email_active = bool(self.email_service and getattr(self.email_service, "is_enabled", False) is True)
         if is_global_email_active and self.require_email:
             self.student_email.required = True
             self.student_email.placeholder = f"e.g. name-wm{current_yy}@student.tarc.edu.my (Required)"
@@ -893,12 +891,9 @@ class VerificationModal(discord.ui.Modal, title="🎓 TARUMT Student Verificatio
         if not guild_email_required and guild_id and db:
             guild_email_required = await db.is_guild_email_verification_enabled(guild_id)
 
-        is_email_active = bool(
-            self.email_service and getattr(self.email_service, "is_enabled", False) is True
-        )
+        is_email_active = bool(self.email_service and getattr(self.email_service, "is_enabled", False) is True)
         restrict_smtp = bool(
-            self.email_service
-            and getattr(self.email_service.settings, "email_restrict_smtp_usage", True) is True
+            self.email_service and getattr(self.email_service.settings, "email_restrict_smtp_usage", True) is True
         )
 
         # 1. If email is mandated for this guild, ensure student provided an email
@@ -1246,12 +1241,10 @@ class VerificationCog(commands.Cog, name="Verification"):
                     return
 
             is_email_active = (
-                self.email_service is not None
-                and getattr(self.email_service, "is_enabled", False) is True
+                self.email_service is not None and getattr(self.email_service, "is_enabled", False) is True
             )
             restrict_smtp = bool(
-                self.email_service
-                and getattr(self.email_service.settings, "email_restrict_smtp_usage", True) is True
+                self.email_service and getattr(self.email_service.settings, "email_restrict_smtp_usage", True) is True
             )
             guild_email_required = False
             if interaction.guild and self.db:
@@ -1444,8 +1437,7 @@ class VerificationCog(commands.Cog, name="Verification"):
         if interaction.guild and hasattr(interaction.guild, "id") and isinstance(interaction.guild.id, int) and self.db:
             guild_email_opted_in = await self.db.is_guild_email_verification_enabled(interaction.guild.id)
             restrict_smtp = bool(
-                self.email_service
-                and getattr(self.email_service.settings, "email_restrict_smtp_usage", True) is True
+                self.email_service and getattr(self.email_service.settings, "email_restrict_smtp_usage", True) is True
             )
             pending = self.email_service.get_pending_otp(interaction.user.id)
             if restrict_smtp and not guild_email_opted_in and not pending:
@@ -1540,7 +1532,7 @@ class VerificationCog(commands.Cog, name="Verification"):
                 f"🎉 **{interaction.user.mention}** has successfully registered their **TARUMT Alumni** status!\n\n"
                 f"• **Class Cohort**: Class of {result['graduated_year']}\n"
                 f"• **Faculty**: {result['faculty_name']}\n"
-                + (f"• **Programme**: {result['programme']}\n" if result['programme'] else "")
+                + (f"• **Programme**: {result['programme']}\n" if result["programme"] else "")
                 + f"\n🏷️ **`TARUMT Alumni`** role assigned in {result['guilds_updated']} server(s).\n"
                 f"🪪 **`❖ ALUMNI`** badge unlocked on your Digital Campus Card (`/card`)."
             ),
@@ -1625,6 +1617,7 @@ class VerificationCog(commands.Cog, name="Verification"):
 
     async def get_welcome_or_verify_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
         """Finds the best channel to tag newly joined members for verification."""
+
         def _can_bot_send(c: discord.TextChannel) -> bool:
             if not hasattr(c, "permissions_for") or not hasattr(guild, "me") or not guild.me:
                 return True
@@ -1681,7 +1674,9 @@ class VerificationCog(commands.Cog, name="Verification"):
                 if not r_name:
                     continue
                 # Dynamic faculty role check
-                if any(VerificationService._match_faculty_role_in_list([r], fac) is not None for fac in FACULTY_ROLE_NAMES):
+                if any(
+                    VerificationService._match_faculty_role_in_list([r], fac) is not None for fac in FACULTY_ROLE_NAMES
+                ):
                     return False
                 # Dynamic guest / visitor role check
                 if GUEST_ROLE_PATTERN.search(r_name):
@@ -1728,11 +1723,7 @@ class VerificationCog(commands.Cog, name="Verification"):
         )
         tip_embed.set_footer(text="TARVeri • Click a button below to get verified")
 
-        view = (
-            VerificationGatewayView(self.service, self.guest_service)
-            if self.guest_service
-            else None
-        )
+        view = VerificationGatewayView(self.service, self.guest_service) if self.guest_service else None
 
         try:
             await message.reply(embed=tip_embed, view=view, mention_author=True)
@@ -1795,7 +1786,9 @@ class VerificationCog(commands.Cog, name="Verification"):
             alert_embed.add_field(name="🛡️ Blacklist Vector", value=f"`{target_type}`", inline=True)
             alert_embed.add_field(name="🔍 Matched Target", value=f"`{display_mask}`", inline=True)
             alert_embed.add_field(name="📝 Reason", value=bl_reason or "*No reason specified*", inline=False)
-            alert_embed.add_field(name="⚡ Action Taken", value="Auto-role assignment prevented. Access restricted.", inline=False)
+            alert_embed.add_field(
+                name="⚡ Action Taken", value="Auto-role assignment prevented. Access restricted.", inline=False
+            )
             alert_embed.set_footer(text="TARVeri Security Guard • Guild Blacklist")
 
             try:
@@ -1818,11 +1811,7 @@ class VerificationCog(commands.Cog, name="Verification"):
                         require_email=True,
                         member_mention=member.mention,
                     )
-                    view = (
-                        VerificationGatewayView(self.service, self.guest_service)
-                        if self.guest_service
-                        else None
-                    )
+                    view = VerificationGatewayView(self.service, self.guest_service) if self.guest_service else None
                     try:
                         await welcome_channel.send(
                             content=f"👋 Welcome {member.mention}!",
@@ -1897,11 +1886,7 @@ class VerificationCog(commands.Cog, name="Verification"):
                 member_mention=member.mention,
             )
 
-            view = (
-                VerificationGatewayView(self.service, self.guest_service)
-                if self.guest_service
-                else None
-            )
+            view = VerificationGatewayView(self.service, self.guest_service) if self.guest_service else None
 
             try:
                 await welcome_channel.send(
@@ -1930,11 +1915,7 @@ class VerificationCog(commands.Cog, name="Verification"):
                 ),
                 color=discord.Color.blue(),
             )
-            dm_view = (
-                VerificationGatewayView(self.service, self.guest_service)
-                if self.guest_service
-                else None
-            )
+            dm_view = VerificationGatewayView(self.service, self.guest_service) if self.guest_service else None
             await member.send(embed=dm_embed, view=dm_view)
         except discord.Forbidden:
             await self.db.log(
@@ -1965,6 +1946,7 @@ class VerificationCog(commands.Cog, name="Verification"):
             return
 
         from datetime import datetime, timedelta
+
         now_dt = datetime.now(get_configured_tz())
         today_iso = now_dt.strftime("%Y-%m-%d")
         if card_expiry >= today_iso:

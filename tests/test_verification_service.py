@@ -287,7 +287,9 @@ async def test_perform_verification_role_creation_and_assignment_success(tmp_pat
     assert "Diploma" in response
 
     assert guild.create_role.call_count == 3
-    member.add_roles.assert_called_once_with(fac_role, campus_role, level_role, reason="TARVeri: Student verification role assignment")
+    member.add_roles.assert_called_once_with(
+        fac_role, campus_role, level_role, reason="TARVeri: Student verification role assignment"
+    )
 
     # Verification recorded in DB with campus and level codes
     record = await db.get_verification_by_user(88888)
@@ -683,7 +685,9 @@ async def test_perform_verification_never_duplicates_existing_fuzzy_or_cached_ro
         # create_role must NEVER be called because the roles already exist
         guild.create_role.assert_not_called()
         # existing roles were assigned to member
-        member.add_roles.assert_called_once_with(existing_role, existing_campus, existing_level, reason="TARVeri: Student verification role assignment")
+        member.add_roles.assert_called_once_with(
+            existing_role, existing_campus, existing_level, reason="TARVeri: Student verification role assignment"
+        )
     finally:
         await db.close()
 
@@ -1091,7 +1095,9 @@ async def test_perform_verification_when_student_already_has_target_faculty_role
         assert "KL Main Campus" in response or "officially verified" in response
 
         # 3. Missing campus & level roles were assigned
-        member.add_roles.assert_called_once_with(camp_role, lvl_role, reason="TARVeri: Student verification role assignment")
+        member.add_roles.assert_called_once_with(
+            camp_role, lvl_role, reason="TARVeri: Student verification role assignment"
+        )
 
         # 4. Database MUST record verification
         record = await db.get_verification_by_user(55555)
@@ -1180,10 +1186,14 @@ async def test_perform_verification_when_student_has_conflicting_faculty_role(tm
         assert "FOCS" in response
 
         # Conflicting wrong role removed
-        member.remove_roles.assert_called_once_with(wrong_role, reason="TARVeri: Reconcile faculty/campus/level role mismatch")
+        member.remove_roles.assert_called_once_with(
+            wrong_role, reason="TARVeri: Reconcile faculty/campus/level role mismatch"
+        )
 
         # Correct roles added
-        member.add_roles.assert_called_once_with(focs_role, camp_role, lvl_role, reason="TARVeri: Student verification role assignment")
+        member.add_roles.assert_called_once_with(
+            focs_role, camp_role, lvl_role, reason="TARVeri: Student verification role assignment"
+        )
 
         # Recorded in DB
         record = await db.get_verification_by_user(77777)
@@ -1616,8 +1626,13 @@ async def test_reconcile_self_healing_email_policy_and_unverified_cleanup(tmp_pa
 
     # Record User B with email
     await db.record_verification(
-        10002, "hash_b", "M", campus_code="W", level_code="R",
-        student_email_encrypted=b"enc", student_email_hash="email_hash_b"
+        10002,
+        "hash_b",
+        "M",
+        campus_code="W",
+        level_code="R",
+        student_email_encrypted=b"enc",
+        student_email_hash="email_hash_b",
     )
 
     # Record User D without email (past verified user)
@@ -1764,7 +1779,9 @@ async def test_mass_revocation_execution_and_rejection(tmp_path):
     assert "Successfully executed mass revocation" in msg
 
     for m in members:
-        m.remove_roles.assert_called_once_with(focs_role, reason=f"TARVeri: Mass revocation approved by {admin_user} ({action_id})")
+        m.remove_roles.assert_called_once_with(
+            focs_role, reason=f"TARVeri: Mass revocation approved by {admin_user} ({action_id})"
+        )
 
     # Check DB status is APPROVED
     action = await db.get_pending_mass_action(action_id)
@@ -1794,12 +1811,3 @@ async def test_mass_revocation_execution_and_rejection(tmp_path):
     assert action_2["decided_by_id"] == 8888
 
     await db.close()
-
-
-
-
-
-
-
-
-

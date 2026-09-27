@@ -206,6 +206,3 @@ class AsyncCircuitBreaker:
         except Exception:
             await self.record_failure()
             raise
-
-
-

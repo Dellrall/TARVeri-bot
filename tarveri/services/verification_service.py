@@ -119,6 +119,7 @@ class VerificationService:
                 missing_in_cache.append(guild)
 
         if missing_in_cache:
+
             async def _check_guild(g: discord.Guild) -> discord.Guild | None:
                 try:
                     m = await g.fetch_member(user_id)
@@ -179,17 +180,13 @@ class VerificationService:
         safe_roles = [r for r in roles if _is_safe_role(getattr(r, "name", ""))]
 
         # Tier 2: Case-insensitive & trimmed match
-        ci_matches = [
-            r for r in safe_roles if getattr(r, "name", "").strip().upper() == target_upper
-        ]
+        ci_matches = [r for r in safe_roles if getattr(r, "name", "").strip().upper() == target_upper]
         if ci_matches:
             return max(ci_matches, key=lambda r: getattr(r, "position", 0))
 
         # Tier 3: Normalized alphanumeric match
         alnum_matches = [
-            r
-            for r in safe_roles
-            if re.sub(r"[^A-Za-z0-9]", "", getattr(r, "name", "")).upper() == target_alnum
+            r for r in safe_roles if re.sub(r"[^A-Za-z0-9]", "", getattr(r, "name", "")).upper() == target_alnum
         ]
         if alnum_matches:
             return max(alnum_matches, key=lambda r: getattr(r, "position", 0))
@@ -422,10 +419,9 @@ class VerificationService:
                         logger.warning(f"Could not assign alumni role to {member} in {guild.name}: {e}")
         return assigned_guild_names
 
-    async def find_guest_role(
-        self, guild: discord.Guild, configured_name: str | None = None
-    ) -> discord.Role | None:
+    async def find_guest_role(self, guild: discord.Guild, configured_name: str | None = None) -> discord.Role | None:
         """Finds the guest role in guild matching configured name or regex pattern."""
+
         def _match_guest_in_list(roles: Sequence[discord.Role]) -> discord.Role | None:
             if configured_name and configured_name.strip():
                 conf_clean = configured_name.strip().lower()
@@ -685,15 +681,16 @@ class VerificationService:
 
         # Check for any conflicting faculty roles (e.g. manually selected a different faculty role prior)
         conflicting_faculty_roles = [
-            r for r in member_roles
-            if any(self._match_faculty_role_in_list([r], fac) is not None for fac in FACULTY_ROLE_NAMES if fac != role_name)
+            r
+            for r in member_roles
+            if any(
+                self._match_faculty_role_in_list([r], fac) is not None for fac in FACULTY_ROLE_NAMES if fac != role_name
+            )
         ]
 
         me = getattr(guild, "me", None)
         can_manage = (
-            getattr(me.guild_permissions, "manage_roles", False)
-            if me and hasattr(me, "guild_permissions")
-            else False
+            getattr(me.guild_permissions, "manage_roles", False) if me and hasattr(me, "guild_permissions") else False
         )
         bot_top_role = getattr(me, "top_role", None) if me else None
         bot_pos = getattr(bot_top_role, "position", 0) if bot_top_role else 0
@@ -728,42 +725,64 @@ class VerificationService:
         if campus_role_name:
             has_campus = any(self._match_campus_role_in_list([r], campus_role_name) is not None for r in member_roles)
             conflicting_campus_roles = [
-                r for r in member_roles
-                if any(self._match_campus_role_in_list([r], c) is not None for c in CAMPUS_ROLE_NAMES if c != campus_role_name)
+                r
+                for r in member_roles
+                if any(
+                    self._match_campus_role_in_list([r], c) is not None
+                    for c in CAMPUS_ROLE_NAMES
+                    if c != campus_role_name
+                )
             ]
             for conf_c in conflicting_campus_roles:
                 conf_c_pos = getattr(conf_c, "position", 0)
-                if can_manage and not (isinstance(bot_pos, int) and isinstance(conf_c_pos, int) and conf_c_pos >= bot_pos):
+                if can_manage and not (
+                    isinstance(bot_pos, int) and isinstance(conf_c_pos, int) and conf_c_pos >= bot_pos
+                ):
                     roles_to_remove.append(conf_c)
 
             if not has_campus:
                 camp_role = await self.get_or_create_campus_role(guild, campus_role_name)
                 if camp_role:
                     camp_pos = getattr(camp_role, "position", 0)
-                    if can_manage and not (isinstance(bot_pos, int) and isinstance(camp_pos, int) and camp_pos >= bot_pos):
+                    if can_manage and not (
+                        isinstance(bot_pos, int) and isinstance(camp_pos, int) and camp_pos >= bot_pos
+                    ):
                         roles_to_add.append(camp_role)
                         camp_name = getattr(camp_role, "name", None)
-                        assigned_names.append(camp_name if isinstance(camp_name, str) and camp_name else campus_role_name)
+                        assigned_names.append(
+                            camp_name if isinstance(camp_name, str) and camp_name else campus_role_name
+                        )
             else:
                 assigned_names.append(campus_role_name)
 
         # 3. Study Level role (if provided)
         if level_role_name:
-            has_level = any(self._match_study_level_role_in_list([r], level_role_name) is not None for r in member_roles)
+            has_level = any(
+                self._match_study_level_role_in_list([r], level_role_name) is not None for r in member_roles
+            )
             conflicting_level_roles = [
-                r for r in member_roles
-                if any(self._match_study_level_role_in_list([r], lvl_name) is not None for lvl_name in STUDY_LEVEL_ROLE_NAMES if lvl_name != level_role_name)
+                r
+                for r in member_roles
+                if any(
+                    self._match_study_level_role_in_list([r], lvl_name) is not None
+                    for lvl_name in STUDY_LEVEL_ROLE_NAMES
+                    if lvl_name != level_role_name
+                )
             ]
             for conf_l in conflicting_level_roles:
                 conf_l_pos = getattr(conf_l, "position", 0)
-                if can_manage and not (isinstance(bot_pos, int) and isinstance(conf_l_pos, int) and conf_l_pos >= bot_pos):
+                if can_manage and not (
+                    isinstance(bot_pos, int) and isinstance(conf_l_pos, int) and conf_l_pos >= bot_pos
+                ):
                     roles_to_remove.append(conf_l)
 
             if not has_level:
                 lvl_role = await self.get_or_create_study_level_role(guild, level_role_name)
                 if lvl_role:
                     lvl_pos = getattr(lvl_role, "position", 0)
-                    if can_manage and not (isinstance(bot_pos, int) and isinstance(lvl_pos, int) and lvl_pos >= bot_pos):
+                    if can_manage and not (
+                        isinstance(bot_pos, int) and isinstance(lvl_pos, int) and lvl_pos >= bot_pos
+                    ):
                         roles_to_add.append(lvl_role)
                         lvl_name = getattr(lvl_role, "name", None)
                         assigned_names.append(lvl_name if isinstance(lvl_name, str) and lvl_name else level_role_name)
@@ -774,7 +793,9 @@ class VerificationService:
         roles_modified = False
         if roles_to_remove:
             try:
-                await member.remove_roles(*roles_to_remove, reason="TARVeri: Reconcile faculty/campus/level role mismatch")
+                await member.remove_roles(
+                    *roles_to_remove, reason="TARVeri: Reconcile faculty/campus/level role mismatch"
+                )
                 roles_modified = True
             except discord.HTTPException as e:
                 logger.warning(f"Failed to remove conflicting roles for user {user_id} in '{guild.name}': {e}")
@@ -861,7 +882,9 @@ class VerificationService:
             )
         if result.missing_role_in:
             lines.append("⚠️ I couldn't create/find the required role (contact an admin) in:")
-            lines.extend(f"   • **{g}** (I likely need 'Manage Roles' permission there)" for g in result.missing_role_in)
+            lines.extend(
+                f"   • **{g}** (I likely need 'Manage Roles' permission there)" for g in result.missing_role_in
+            )
         if result.failed_in:
             lines.append("⚠️ I don't have permission to assign roles in:")
             lines.extend(f"   • **{g}** (my role needs to be moved above the faculty roles)" for g in result.failed_in)
@@ -970,7 +993,9 @@ class VerificationService:
             f"🎓 Your status has been transitioned to **{to_faculty_role}** • **{to_level_role}** ({to_campus_role}).",
         ]
         if sync_result.verified_in:
-            lines.append(f"🏷️ Updated roles in: {', '.join([f'**{e[1] if len(e) == 3 else e[0]}**' for e in sync_result.verified_in])}")
+            lines.append(
+                f"🏷️ Updated roles in: {', '.join([f'**{e[1] if len(e) == 3 else e[0]}**' for e in sync_result.verified_in])}"
+            )
         lines.append("🪪 Your Digital Campus Card (`/card`) has been updated to reflect your new study level.")
         return "\n".join(lines)
 
@@ -1293,7 +1318,11 @@ class VerificationService:
                     alert_embed.add_field(name="🛡️ Blacklist Vector", value=f"`{target_type}`", inline=True)
                     alert_embed.add_field(name="🔍 Matched Target", value=f"`{display_mask}`", inline=True)
                     alert_embed.add_field(name="📝 Reason", value=bl_reason or "*No reason specified*", inline=False)
-                    alert_embed.add_field(name="⚡ Action Taken", value="Verification blocked immediately. No roles assigned.", inline=False)
+                    alert_embed.add_field(
+                        name="⚡ Action Taken",
+                        value="Verification blocked immediately. No roles assigned.",
+                        inline=False,
+                    )
                     alert_embed.set_footer(text="TARVeri Security Guard • Guild Blacklist")
 
                     try:
@@ -1332,7 +1361,9 @@ class VerificationService:
                     )
 
                 existing_details = await self.db.get_verification_details(user.id)
-                final_email_hash = email_hash or (existing_details.get("student_email_hash") if existing_details else None)
+                final_email_hash = email_hash or (
+                    existing_details.get("student_email_hash") if existing_details else None
+                )
                 is_user_email_verified = bool(final_email_hash)
 
                 mutual_guilds = await self.get_mutual_guilds_for_user(user.id)
@@ -1409,10 +1440,7 @@ class VerificationService:
                             student_email_hash=email_hash,
                             programme_code=info.programme_code,
                         )
-                        active_servers = [
-                            f"{g_name} ({r_name})"
-                            for _, g_name, r_name in sync_result.verified_in
-                        ]
+                        active_servers = [f"{g_name} ({r_name})" for _, g_name, r_name in sync_result.verified_in]
                         await self.db.log(
                             "INFO",
                             "VERIFIED",
@@ -1438,13 +1466,16 @@ class VerificationService:
                             member_obj = await self.get_or_fetch_member(guild_obj, user.id)
                             if member_obj:
                                 roles_to_remove = [
-                                    r for r in getattr(member_obj, "roles", [])
+                                    r
+                                    for r in getattr(member_obj, "roles", [])
                                     if getattr(r, "name", "") in target_names
                                     or (isinstance(getattr(r, "name", None), str) and getattr(r, "name", "") in r_label)
                                 ]
                                 if roles_to_remove:
                                     try:
-                                        await member_obj.remove_roles(*roles_to_remove, reason="TARVeri: Database collision rollback")
+                                        await member_obj.remove_roles(
+                                            *roles_to_remove, reason="TARVeri: Database collision rollback"
+                                        )
                                     except Exception as exc:
                                         logger.debug("Failed removing roles during rollback: %s", exc)
                                 else:
@@ -1536,9 +1567,7 @@ class VerificationService:
             except Exception:
                 me = None
         can_manage = (
-            getattr(me.guild_permissions, "manage_roles", False)
-            if me and hasattr(me, "guild_permissions")
-            else False
+            getattr(me.guild_permissions, "manage_roles", False) if me and hasattr(me, "guild_permissions") else False
         )
         bot_top_role = getattr(me, "top_role", None) if me else None
         bot_pos = getattr(bot_top_role, "position", 0) if bot_top_role else 0
@@ -1608,8 +1637,13 @@ class VerificationService:
                     or self._match_alumni_role_in_list([r]) is not None
                 ]
                 strip_manageable = [
-                    r for r in roles_to_strip
-                    if not (isinstance(bot_pos, int) and isinstance(getattr(r, "position", 0), int) and getattr(r, "position", 0) >= bot_pos)
+                    r
+                    for r in roles_to_strip
+                    if not (
+                        isinstance(bot_pos, int)
+                        and isinstance(getattr(r, "position", 0), int)
+                        and getattr(r, "position", 0) >= bot_pos
+                    )
                 ]
                 if strip_manageable and can_manage:
                     email_strip_candidates.append((member, strip_manageable))
@@ -1625,12 +1659,19 @@ class VerificationService:
 
                 # Clean up any obsolete/conflicting other faculty roles
                 conflicting_fac_roles = [
-                    r for r in member_roles
-                    if any(self._match_faculty_role_in_list([r], fac) is not None for fac in FACULTY_ROLE_NAMES if fac != target_role_name)
+                    r
+                    for r in member_roles
+                    if any(
+                        self._match_faculty_role_in_list([r], fac) is not None
+                        for fac in FACULTY_ROLE_NAMES
+                        if fac != target_role_name
+                    )
                 ]
                 for conf_r in conflicting_fac_roles:
                     conf_pos = getattr(conf_r, "position", 0)
-                    if can_manage and not (isinstance(bot_pos, int) and isinstance(conf_pos, int) and conf_pos >= bot_pos):
+                    if can_manage and not (
+                        isinstance(bot_pos, int) and isinstance(conf_pos, int) and conf_pos >= bot_pos
+                    ):
                         try:
                             await member.remove_roles(conf_r, reason="TARVeri: Self-healing faculty role mismatch")
                         except discord.HTTPException:
@@ -1640,7 +1681,9 @@ class VerificationService:
                 target_role = await self.get_or_create_faculty_role(guild, target_role_name)
                 if target_role:
                     role_pos = getattr(target_role, "position", 0)
-                    if can_manage and not (isinstance(bot_pos, int) and isinstance(role_pos, int) and role_pos >= bot_pos):
+                    if can_manage and not (
+                        isinstance(bot_pos, int) and isinstance(role_pos, int) and role_pos >= bot_pos
+                    ):
                         roles_to_add.append(target_role)
                     else:
                         summary["failed"] += 1
@@ -1678,7 +1721,9 @@ class VerificationService:
                 target_camp = await self.get_or_create_campus_role(guild, target_campus_name)
                 if target_camp:
                     camp_pos = getattr(target_camp, "position", 0)
-                    if can_manage and not (isinstance(bot_pos, int) and isinstance(camp_pos, int) and camp_pos >= bot_pos):
+                    if can_manage and not (
+                        isinstance(bot_pos, int) and isinstance(camp_pos, int) and camp_pos >= bot_pos
+                    ):
                         roles_to_add.append(target_camp)
 
             # 3. Study level role
@@ -1713,7 +1758,9 @@ class VerificationService:
                     target_lvl = await self.get_or_create_study_level_role(guild, target_level_name)
                     if target_lvl:
                         lvl_pos = getattr(target_lvl, "position", 0)
-                        if can_manage and not (isinstance(bot_pos, int) and isinstance(lvl_pos, int) and lvl_pos >= bot_pos):
+                        if can_manage and not (
+                            isinstance(bot_pos, int) and isinstance(lvl_pos, int) and lvl_pos >= bot_pos
+                        ):
                             roles_to_add.append(target_lvl)
 
             # 4. Alumni role (if marked as alumni)
@@ -1723,7 +1770,9 @@ class VerificationService:
                     alumni_role = await self.get_or_create_alumni_role(guild)
                     if alumni_role:
                         alumni_pos = getattr(alumni_role, "position", 0)
-                        if can_manage and not (isinstance(bot_pos, int) and isinstance(alumni_pos, int) and alumni_pos >= bot_pos):
+                        if can_manage and not (
+                            isinstance(bot_pos, int) and isinstance(alumni_pos, int) and alumni_pos >= bot_pos
+                        ):
                             roles_to_add.append(alumni_role)
 
             if roles_to_add:
@@ -1733,9 +1782,16 @@ class VerificationService:
                         reason="TARVeri: Self-healing automatic role restoration for verified student",
                     )
                     summary["restored"] += len(roles_to_add)
-                    assigned_labels = ", ".join(
-                        [getattr(r, "name", "Role") for r in roles_to_add if isinstance(getattr(r, "name", None), str)]
-                    ) or "roles"
+                    assigned_labels = (
+                        ", ".join(
+                            [
+                                getattr(r, "name", "Role")
+                                for r in roles_to_add
+                                if isinstance(getattr(r, "name", None), str)
+                            ]
+                        )
+                        or "roles"
+                    )
                     await self.db.log(
                         "INFO",
                         "ROLE_RESTORED",
@@ -1745,9 +1801,7 @@ class VerificationService:
                     )
                 except discord.HTTPException as e:
                     summary["failed"] += len(roles_to_add)
-                    logger.warning(
-                        f"Failed to restore roles for {member} in '{guild.name}': {e}"
-                    )
+                    logger.warning(f"Failed to restore roles for {member} in '{guild.name}': {e}")
 
         # Process email policy candidates with Circuit Breaker (Threshold >= 5)
         threshold = getattr(self.settings, "mass_revocation_threshold", 5) if self.settings else 5
@@ -1797,12 +1851,19 @@ class VerificationService:
                         for r in getattr(member, "roles", [])
                         if any(self._match_faculty_role_in_list([r], fac) is not None for fac in FACULTY_ROLE_NAMES)
                         or any(self._match_campus_role_in_list([r], camp) is not None for camp in CAMPUS_ROLE_NAMES)
-                        or any(self._match_study_level_role_in_list([r], lvl) is not None for lvl in STUDY_LEVEL_ROLE_NAMES)
+                        or any(
+                            self._match_study_level_role_in_list([r], lvl) is not None for lvl in STUDY_LEVEL_ROLE_NAMES
+                        )
                         or self._match_alumni_role_in_list([r]) is not None
                     ]
                     stray_manageable = [
-                        r for r in stray_roles
-                        if not (isinstance(bot_pos, int) and isinstance(getattr(r, "position", 0), int) and getattr(r, "position", 0) >= bot_pos)
+                        r
+                        for r in stray_roles
+                        if not (
+                            isinstance(bot_pos, int)
+                            and isinstance(getattr(r, "position", 0), int)
+                            and getattr(r, "position", 0) >= bot_pos
+                        )
                     ]
                     if stray_manageable and can_manage:
                         unverified_stray_candidates.append((member, stray_manageable))
@@ -1915,6 +1976,7 @@ class VerificationService:
 
         # Validate year (from 1969 TAR College founding to realistic graduation window)
         from datetime import datetime
+
         current_year = datetime.now().year
         if graduated_year < 1969 or graduated_year > current_year + 5:
             return {
@@ -2066,12 +2128,7 @@ class VerificationService:
 
             for role in roles_to_remove:
                 role_pos = getattr(role, "position", 0)
-                if (
-                    can_manage
-                    and isinstance(bot_pos, int)
-                    and isinstance(role_pos, int)
-                    and role_pos < bot_pos
-                ):
+                if can_manage and isinstance(bot_pos, int) and isinstance(role_pos, int) and role_pos < bot_pos:
                     try:
                         admin_str = str(admin) if admin else "Admin"
                         await member.remove_roles(
@@ -2122,9 +2179,7 @@ class VerificationService:
 
         me = getattr(guild, "me", None)
         can_manage = (
-            getattr(me.guild_permissions, "manage_roles", False)
-            if me and hasattr(me, "guild_permissions")
-            else False
+            getattr(me.guild_permissions, "manage_roles", False) if me and hasattr(me, "guild_permissions") else False
         )
         bot_top = getattr(me, "top_role", None)
         bot_pos = getattr(bot_top, "position", 0) if bot_top else 0
@@ -2233,9 +2288,7 @@ class VerificationService:
 
         me = getattr(guild, "me", None)
         can_manage = (
-            getattr(me.guild_permissions, "manage_roles", False)
-            if me and hasattr(me, "guild_permissions")
-            else False
+            getattr(me.guild_permissions, "manage_roles", False) if me and hasattr(me, "guild_permissions") else False
         )
         bot_top_role = getattr(me, "top_role", None) if me else None
         bot_pos = getattr(bot_top_role, "position", 0) if bot_top_role else 0
@@ -2307,7 +2360,11 @@ class VerificationService:
             r_name = getattr(r, "name", "")
             if not r_name or ROLE_QUALIFIER_PATTERN.search(r_name):
                 continue
-            if configured_guest_name and r_name.strip().lower() == configured_guest_name.lower() or GUEST_ROLE_PATTERN.search(r_name):
+            if (
+                configured_guest_name
+                and r_name.strip().lower() == configured_guest_name.lower()
+                or GUEST_ROLE_PATTERN.search(r_name)
+            ):
                 guest_roles.append(r)
 
         if guest_roles:
@@ -2470,10 +2527,9 @@ class VerificationService:
             r_name = getattr(r, "name", "")
             if not r_name:
                 continue
-            is_managed = (
-                any(self._match_faculty_role_in_list([r], fac) is not None for fac in FACULTY_ROLE_NAMES)
-                or bool(GUEST_ROLE_PATTERN.search(r_name))
-            )
+            is_managed = any(
+                self._match_faculty_role_in_list([r], fac) is not None for fac in FACULTY_ROLE_NAMES
+            ) or bool(GUEST_ROLE_PATTERN.search(r_name))
             if is_managed:
                 r_pos = getattr(r, "position", 0)
                 if isinstance(bot_pos, int) and isinstance(r_pos, int) and r_pos >= bot_pos:
@@ -2513,8 +2569,12 @@ class VerificationService:
         bot_pos = getattr(bot_top, "position", 0) if bot_top else 0
 
         manageable_roles = [
-            r for r in roles_to_remove
-            if can_manage and isinstance(bot_pos, int) and isinstance(getattr(r, "position", 0), int) and getattr(r, "position", 0) < bot_pos
+            r
+            for r in roles_to_remove
+            if can_manage
+            and isinstance(bot_pos, int)
+            and isinstance(getattr(r, "position", 0), int)
+            and getattr(r, "position", 0) < bot_pos
         ]
 
         removed_names: list[str] = []
@@ -2609,7 +2669,11 @@ class VerificationService:
             user_id=admin_id,
         )
 
-        strip_msg = f" Stripped {len(stripped_roles)} role(s) from {target_member.mention}." if stripped_roles and target_member else ""
+        strip_msg = (
+            f" Stripped {len(stripped_roles)} role(s) from {target_member.mention}."
+            if stripped_roles and target_member
+            else ""
+        )
         return True, f"✅ Successfully added [{clean_type}] `{display_mask}` to **{guild.name}** blacklist.{strip_msg}"
 
     async def unblacklist_target(
@@ -2684,7 +2748,9 @@ class VerificationService:
         can_create = False
         if bot_member:
             guild_perms = getattr(bot_member, "guild_permissions", None)
-            if guild_perms and (getattr(guild_perms, "manage_channels", False) or getattr(guild_perms, "administrator", False)):
+            if guild_perms and (
+                getattr(guild_perms, "manage_channels", False) or getattr(guild_perms, "administrator", False)
+            ):
                 can_create = True
 
         if not can_create or not hasattr(guild, "create_text_channel"):
@@ -2714,7 +2780,9 @@ class VerificationService:
                 if role == default_r:
                     continue
                 role_perms = getattr(role, "permissions", None)
-                if role_perms and (getattr(role_perms, "administrator", False) or getattr(role_perms, "manage_guild", False)):
+                if role_perms and (
+                    getattr(role_perms, "administrator", False) or getattr(role_perms, "manage_guild", False)
+                ):
                     overwrites[role] = discord.PermissionOverwrite(
                         view_channel=True,
                         read_message_history=True,
@@ -2873,8 +2941,13 @@ class VerificationService:
                 or self._match_alumni_role_in_list([r]) is not None
             ]
             manageable = [
-                r for r in roles_to_strip
-                if not (isinstance(bot_pos, int) and isinstance(getattr(r, "position", 0), int) and getattr(r, "position", 0) >= bot_pos)
+                r
+                for r in roles_to_strip
+                if not (
+                    isinstance(bot_pos, int)
+                    and isinstance(getattr(r, "position", 0), int)
+                    and getattr(r, "position", 0) >= bot_pos
+                )
             ]
             if manageable:
                 try:
@@ -2895,7 +2968,10 @@ class VerificationService:
             user_id=admin_id,
         )
 
-        return True, f"✅ Successfully executed mass revocation `{action_id}` ({removed_count} roles stripped from {len(user_ids)} members)."
+        return (
+            True,
+            f"✅ Successfully executed mass revocation `{action_id}` ({removed_count} roles stripped from {len(user_ids)} members).",
+        )
 
     async def reject_mass_revocation(
         self,

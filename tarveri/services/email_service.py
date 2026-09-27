@@ -93,6 +93,7 @@ EMAIL_OTP_HTML_TEMPLATE = """<!DOCTYPE html>
 @dataclass(slots=True)
 class PendingOtp:
     """In-memory transient state for pending OTP email verification."""
+
     user_id: int
     student_id: str
     email: str
@@ -136,9 +137,7 @@ class EmailService:
 
     def is_email_valid(self, email_address: str) -> bool:
         """Checks format and ensures domain is within allowed institutional domains."""
-        return is_valid_student_email(
-            email_address, allowed_domains=self.settings.email_allowed_domains
-        )
+        return is_valid_student_email(email_address, allowed_domains=self.settings.email_allowed_domains)
 
     def encrypt_student_email(self, email_address: str) -> str:
         """Encrypts email with configured AES-256 key."""
@@ -155,9 +154,7 @@ class EmailService:
     def _prune_expired_otps(self, now: float | None = None) -> None:
         """Removes expired pending OTPs to prevent memory growth over long uptime."""
         current_time = now if now is not None else time.monotonic()
-        expired_keys = [
-            uid for uid, otp in self._pending_otps.items() if current_time > otp.expires_at
-        ]
+        expired_keys = [uid for uid, otp in self._pending_otps.items() if current_time > otp.expires_at]
         for uid in expired_keys:
             self._pending_otps.pop(uid, None)
 
@@ -204,16 +201,9 @@ class EmailService:
             existing = self._pending_otps.get(user_id)
             if existing:
                 # If resending to the exact same email & student ID, enforce cooldown
-                is_same_request = (
-                    existing.email == email_clean
-                    and existing.student_id == student_id
-                )
+                is_same_request = existing.email == email_clean and existing.student_id == student_id
                 if is_same_request:
-                    cooldown_remaining = (
-                        existing.last_sent_at
-                        + self.settings.email_otp_resend_cooldown_seconds
-                        - now
-                    )
+                    cooldown_remaining = existing.last_sent_at + self.settings.email_otp_resend_cooldown_seconds - now
                     if cooldown_remaining > 0:
                         return {
                             "success": False,
@@ -264,9 +254,7 @@ class EmailService:
                 "ttl_seconds": 0,
             }
 
-        logger.info(
-            f"Verification OTP successfully sent to {mask_email(email_clean)} for user ID {user_id}"
-        )
+        logger.info(f"Verification OTP successfully sent to {mask_email(email_clean)} for user ID {user_id}")
         return {
             "success": True,
             "error": None,
@@ -358,15 +346,15 @@ class EmailService:
         """Transmits verification email via async SMTP or mock collector."""
         if self.mock_smtp or not self.settings.smtp_user or not self.settings.smtp_password:
             # Mock / Developer Mode: Log code without real SMTP transmission
-            logger.info(
-                f"[MOCK_SMTP] Sent verification email to {to_email} with OTP: {otp_code} for {server_name}"
+            logger.info(f"[MOCK_SMTP] Sent verification email to {to_email} with OTP: {otp_code} for {server_name}")
+            self.sent_emails.append(
+                {
+                    "to": to_email,
+                    "otp": otp_code,
+                    "server": server_name,
+                    "timestamp": time.time(),
+                }
             )
-            self.sent_emails.append({
-                "to": to_email,
-                "otp": otp_code,
-                "server": server_name,
-                "timestamp": time.time(),
-            })
             return True
 
         return await self._send_smtp_async(
@@ -427,7 +415,7 @@ class EmailService:
         msg.attach(MIMEText(html_content, "html", "utf-8"))
 
         try:
-            is_ssl_port = (port == 465)
+            is_ssl_port = port == 465
             await aiosmtplib.send(
                 msg,
                 hostname=host,
@@ -442,9 +430,7 @@ class EmailService:
         except Exception as e:
             return False, str(e)
 
-    async def _handle_bounce_detected(
-        self, to_email: str, bounce_code: str | None, bounce_reason: str
-    ) -> None:
+    async def _handle_bounce_detected(self, to_email: str, bounce_code: str | None, bounce_reason: str) -> None:
         """Handles detection of a bounced email by logging and storing in the database."""
         self._last_bounce_info = bounce_reason
         logger.warning(
@@ -593,6 +579,7 @@ class EmailService:
         if loop and loop.is_running():
             # Already in an event loop
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(
                     asyncio.run,
@@ -600,6 +587,4 @@ class EmailService:
                 )
                 return future.result()
         else:
-            return asyncio.run(
-                self._send_smtp_async(to_email, otp_code, server_name, ttl_minutes)
-            )
+            return asyncio.run(self._send_smtp_async(to_email, otp_code, server_name, ttl_minutes))

@@ -95,7 +95,7 @@ async def test_random_tag_execution_strictly_general(tmp_path):
         123456789,
         is_enabled=True,
         max_daily_runs=5,
-        chance_denominator=1, # 100% chance for test
+        chance_denominator=1,  # 100% chance for test
         words_list=["Yo"],
     )
 

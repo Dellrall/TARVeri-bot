@@ -43,10 +43,7 @@ async def test_concurrent_faculty_role_creation_idempotency(tmp_path):
     guild.create_role = AsyncMock(side_effect=mock_create_role)
 
     # Launch 10 concurrent tasks trying to create the FOAS role
-    tasks = [
-        service.get_or_create_faculty_role(guild, "FOAS")
-        for _ in range(10)
-    ]
+    tasks = [service.get_or_create_faculty_role(guild, "FOAS") for _ in range(10)]
     results = await asyncio.gather(*tasks)
 
     # All returned roles should be the single created role instance
@@ -89,10 +86,7 @@ async def test_concurrent_guest_role_creation_idempotency(tmp_path):
     guild.create_role = AsyncMock(side_effect=mock_create_role)
 
     # Launch 10 concurrent tasks
-    tasks = [
-        service.get_or_create_guest_role(guild)
-        for _ in range(10)
-    ]
+    tasks = [service.get_or_create_guest_role(guild) for _ in range(10)]
     results = await asyncio.gather(*tasks)
 
     for r in results:
@@ -135,10 +129,7 @@ async def test_concurrent_src_roles_restoration_idempotency(tmp_path):
     guild.create_role = AsyncMock(side_effect=mock_create_role)
 
     # Run 5 concurrent restorations
-    tasks = [
-        service.restore_src_roles(guild)
-        for _ in range(5)
-    ]
+    tasks = [service.restore_src_roles(guild) for _ in range(5)]
     await asyncio.gather(*tasks)
 
     # Total created across all tasks should equal number of SRC roles (8)

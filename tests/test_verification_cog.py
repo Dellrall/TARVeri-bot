@@ -309,7 +309,9 @@ async def test_on_member_join_tags_unverified_member(mock_bot, mock_service, moc
 
     # Welcome channel should be sent a tag message
     welcome_channel.send.assert_called_once()
-    tag_content = welcome_channel.send.call_args.kwargs.get("content") or welcome_channel.send.call_args[1].get("content", "")
+    tag_content = welcome_channel.send.call_args.kwargs.get("content") or welcome_channel.send.call_args[1].get(
+        "content", ""
+    )
     tag_embed = welcome_channel.send.call_args.kwargs.get("embed") or welcome_channel.send.call_args[1].get("embed")
     assert "<@99999>" in tag_content or (tag_embed and "<@99999>" in tag_embed.description)
     assert tag_embed is not None
@@ -363,7 +365,9 @@ async def test_on_member_join_auto_sync_already_verified(mock_bot, mock_service,
 
 
 @pytest.mark.asyncio
-async def test_on_member_join_auto_sync_with_branch_level_and_alumni(mock_bot, mock_service, mock_rate_limiter, tmp_path):
+async def test_on_member_join_auto_sync_with_branch_level_and_alumni(
+    mock_bot, mock_service, mock_rate_limiter, tmp_path
+):
     db = Database(str(tmp_path / "cog_join_sync_penang_test.db"))
     await db.connect()
 
@@ -453,7 +457,6 @@ async def test_verify_slash_resync_already_verified(mock_bot, mock_service, mock
     await db.close()
 
 
-
 @pytest.mark.asyncio
 async def test_verify_slash_direct_argument(mock_bot, mock_service, mock_rate_limiter, tmp_path):
     db = Database(str(tmp_path / "verify_slash.db"))
@@ -485,7 +488,9 @@ async def test_verify_slash_direct_argument(mock_bot, mock_service, mock_rate_li
 
 
 @pytest.mark.asyncio
-async def test_channel_self_healing_clears_deleted_help_and_welcome(mock_bot, mock_service, mock_rate_limiter, tmp_path):
+async def test_channel_self_healing_clears_deleted_help_and_welcome(
+    mock_bot, mock_service, mock_rate_limiter, tmp_path
+):
     db = Database(str(tmp_path / "self_healing_cog_channels.db"))
     await db.connect()
     cog = VerificationCog(mock_bot, db, mock_service, mock_rate_limiter)
@@ -559,6 +564,3 @@ async def test_on_message_dm_verification(mock_bot, mock_service, mock_rate_limi
         message.author.send.assert_called_once_with("✅ Verified successfully")
     finally:
         await db.close()
-
-
-

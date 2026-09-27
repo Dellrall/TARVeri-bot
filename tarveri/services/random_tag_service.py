@@ -215,7 +215,9 @@ class RandomTagService:
         """Finds #general text channel by configured ID or by name."""
         if configured_channel_id:
             try:
-                ch = guild.get_channel(int(configured_channel_id)) or await guild.fetch_channel(int(configured_channel_id))
+                ch = guild.get_channel(int(configured_channel_id)) or await guild.fetch_channel(
+                    int(configured_channel_id)
+                )
                 if isinstance(ch, discord.TextChannel):
                     return ch
             except Exception as e:
@@ -236,12 +238,8 @@ class RandomTagService:
                     break
 
                 # Calculate highly random delay with sub-minute jitter
-                delay_sec = calculate_next_random_delay(
-                    config["min_interval_minutes"], config["max_interval_minutes"]
-                )
-                logger.debug(
-                    f"[RandomTag Guild {guild_id}] Next random tick in {delay_sec / 60:.2f} minutes."
-                )
+                delay_sec = calculate_next_random_delay(config["min_interval_minutes"], config["max_interval_minutes"])
+                logger.debug(f"[RandomTag Guild {guild_id}] Next random tick in {delay_sec / 60:.2f} minutes.")
 
                 await asyncio.sleep(delay_sec)
 
@@ -267,9 +265,7 @@ class RandomTagService:
 
         # 1. Reset daily count at midnight
         if config["last_reset_date"] != today_str:
-            await self.update_config(
-                guild_id, current_daily_runs=0, last_reset_date=today_str
-            )
+            await self.update_config(guild_id, current_daily_runs=0, last_reset_date=today_str)
             config["current_daily_runs"] = 0
 
         # 2. Check Daily Quota
@@ -284,13 +280,9 @@ class RandomTagService:
             return
 
         # 4. Resolve #general channel
-        general_channel = await self._resolve_general_channel(
-            guild, config.get("target_channel_id")
-        )
+        general_channel = await self._resolve_general_channel(guild, config.get("target_channel_id"))
         if not general_channel:
-            logger.warning(
-                f"[RandomTag Guild {guild_id}] #general channel could not be resolved."
-            )
+            logger.warning(f"[RandomTag Guild {guild_id}] #general channel could not be resolved.")
             return
 
         # 5. Fetch members and pick any non-bot user
@@ -337,6 +329,4 @@ class RandomTagService:
                 last_triggered_at=now.isoformat(),
             )
         except Exception as e:
-            logger.error(
-                f"[RandomTag Guild {guild_id}] Failed to send tag message in #{general_channel.name}: {e}"
-            )
+            logger.error(f"[RandomTag Guild {guild_id}] Failed to send tag message in #{general_channel.name}: {e}")

@@ -210,16 +210,18 @@ def archive_old_logs(
                 f"({archive_size / 1024:.1f} KB, saved {space_saved / 1024:.1f} KB)."
             )
 
-            results.append({
-                "period_tag": period_tag,
-                "archive_name": archive_name,
-                "archive_path": archive_path,
-                "files_archived": list(files_to_add.keys()),
-                "deleted_paths": deleted_files,
-                "uncompressed_bytes": total_uncompressed_bytes,
-                "archive_bytes": archive_size,
-                "space_saved_bytes": space_saved,
-            })
+            results.append(
+                {
+                    "period_tag": period_tag,
+                    "archive_name": archive_name,
+                    "archive_path": archive_path,
+                    "files_archived": list(files_to_add.keys()),
+                    "deleted_paths": deleted_files,
+                    "uncompressed_bytes": total_uncompressed_bytes,
+                    "archive_bytes": archive_size,
+                    "space_saved_bytes": space_saved,
+                }
+            )
 
         except Exception as e:
             logger.error(f"❌ [LogRotator] Failed to archive logs for period {period_tag}: {e}", exc_info=True)
@@ -264,15 +266,17 @@ def list_log_archives(
                 except (tarfile.TarError, OSError) as exc:
                     logger.debug("Failed reading tar archive %s members: %s", full_path, exc)
 
-                archives.append({
-                    "filename": entry,
-                    "path": full_path,
-                    "size_bytes": stat.st_size,
-                    "mtime": stat.st_mtime,
-                    "timestamp": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
-                    "file_count": file_count,
-                    "members": members,
-                })
+                archives.append(
+                    {
+                        "filename": entry,
+                        "path": full_path,
+                        "size_bytes": stat.st_size,
+                        "mtime": stat.st_mtime,
+                        "timestamp": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                        "file_count": file_count,
+                        "members": members,
+                    }
+                )
             except OSError:
                 pass
 
@@ -306,15 +310,17 @@ def list_daily_logs(
             except OSError:
                 pass
 
-            logs.append({
-                "filename": entry,
-                "path": full_path,
-                "date": log_d.strftime("%Y-%m-%d") if log_d else "Unknown",
-                "size_bytes": stat.st_size,
-                "lines": line_count,
-                "mtime": stat.st_mtime,
-                "timestamp": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
-            })
+            logs.append(
+                {
+                    "filename": entry,
+                    "path": full_path,
+                    "date": log_d.strftime("%Y-%m-%d") if log_d else "Unknown",
+                    "size_bytes": stat.st_size,
+                    "lines": line_count,
+                    "mtime": stat.st_mtime,
+                    "timestamp": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                }
+            )
         except OSError:
             pass
 

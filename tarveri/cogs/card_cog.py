@@ -85,9 +85,15 @@ class CardCog(commands.Cog, name="CampusCard"):
             embed.set_footer(text="TARVeri Digital Student & Guest Passport • Official Verification")
 
             view = None
-            if card_data.get("is_card_expired") and target_member.id == interaction.user.id and self.verification_service:
+            if (
+                card_data.get("is_card_expired")
+                and target_member.id == interaction.user.id
+                and self.verification_service
+            ):
                 view = StudentLifecycleResolutionView(self.verification_service, self.db)
-                embed.description = "⚠️ **Student Card Validity Expired.** Please choose an option below to update your status:"
+                embed.description = (
+                    "⚠️ **Student Card Validity Expired.** Please choose an option below to update your status:"
+                )
 
             if view is not None:
                 await interaction.followup.send(embed=embed, file=file, view=view, ephemeral=ephemeral)
@@ -130,8 +136,6 @@ class CardCog(commands.Cog, name="CampusCard"):
         target = member or interaction.user
         await self._send_card_response(interaction, target, is_public=not hidden)
 
-    async def view_card_context_menu(
-        self, interaction: discord.Interaction, member: discord.Member
-    ) -> None:
+    async def view_card_context_menu(self, interaction: discord.Interaction, member: discord.Member) -> None:
         """Context menu handler when right-clicking a user -> Apps -> View Campus Card."""
         await self._send_card_response(interaction, member, is_public=True)

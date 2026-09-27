@@ -249,11 +249,11 @@ CAMPUS_ALIASES: Final[dict[str, list[str]]] = {
 
 CAMPUS_COLORS: Final[dict[str, int]] = {
     "KL Main Campus": 0x3498DB,  # Sky Blue (#3498DB)
-    "Penang Branch": 0x1ABC9C,   # Turquoise (#1ABC9C)
-    "Perak Branch": 0xE67E22,    # Orange (#E67E22)
-    "Johor Branch": 0x9B59B6,    # Amethyst (#9B59B6)
-    "Pahang Branch": 0x27AE60,   # Green (#27AE60)
-    "Sabah Branch": 0xF39C12,    # Sun Yellow (#F39C12)
+    "Penang Branch": 0x1ABC9C,  # Turquoise (#1ABC9C)
+    "Perak Branch": 0xE67E22,  # Orange (#E67E22)
+    "Johor Branch": 0x9B59B6,  # Amethyst (#9B59B6)
+    "Pahang Branch": 0x27AE60,  # Green (#27AE60)
+    "Sabah Branch": 0xF39C12,  # Sun Yellow (#F39C12)
 }
 
 # Study level code mapping (index 4 of student ID) -> Role Name
@@ -303,9 +303,9 @@ STUDY_LEVEL_ALIASES: Final[dict[str, list[str]]] = {
 }
 
 STUDY_LEVEL_COLORS: Final[dict[str, int]] = {
-    "Degree": 0x2980B9,        # Belize Blue (#2980B9)
-    "Diploma": 0x16A085,       # Green Sea (#16A085)
-    "Foundation": 0x8E44AD,    # Wisteria (#8E44AD)
+    "Degree": 0x2980B9,  # Belize Blue (#2980B9)
+    "Diploma": 0x16A085,  # Green Sea (#16A085)
+    "Foundation": 0x8E44AD,  # Wisteria (#8E44AD)
     "Postgraduate": 0xD35400,  # Pumpkin (#D35400)
 }
 
@@ -397,11 +397,7 @@ ROLE_HELP_KEYWORDS_PATTERN: Final[re.Pattern[str]] = re.compile(
 def get_configured_tz(tz_name: str | None = None) -> zoneinfo.ZoneInfo | timezone:
     """Resolves the configured timezone (defaults to Asia/Kuala_Lumpur or local system time)."""
     raw = (
-        tz_name
-        or os.getenv("TARVERI_TIMEZONE")
-        or os.getenv("TIMEZONE")
-        or os.getenv("TZ")
-        or "Asia/Kuala_Lumpur"
+        tz_name or os.getenv("TARVERI_TIMEZONE") or os.getenv("TIMEZONE") or os.getenv("TZ") or "Asia/Kuala_Lumpur"
     ).strip()
     if raw.lower() in ("auto", "local", "system", ""):
         return datetime.now().astimezone().tzinfo or UTC
@@ -534,8 +530,12 @@ class Settings:
         hoster_discord_id = _env_optional_int("TARVERI_HOSTER_DISCORD_ID", "HOSTER_DISCORD_ID", "HOSTER_ID")
 
         enable_update_checker = _env_bool("TARVERI_ENABLE_UPDATE_CHECKER", "ENABLE_UPDATE_CHECKER", default=True)
-        update_check_interval_hours = _env_int("TARVERI_UPDATE_CHECK_INTERVAL_HOURS", "UPDATE_CHECK_INTERVAL_HOURS", default=24)
-        update_stream = _env_str("TARVERI_UPDATE_STREAM", "TARVERI_UPDATE_BRANCH", "UPDATE_STREAM", "UPDATE_BRANCH", default="auto")
+        update_check_interval_hours = _env_int(
+            "TARVERI_UPDATE_CHECK_INTERVAL_HOURS", "UPDATE_CHECK_INTERVAL_HOURS", default=24
+        )
+        update_stream = _env_str(
+            "TARVERI_UPDATE_STREAM", "TARVERI_UPDATE_BRANCH", "UPDATE_STREAM", "UPDATE_BRANCH", default="auto"
+        )
 
         help_channel_id = _env_optional_int("TARVERI_HELP_CHANNEL_ID", "HELP_CHANNEL_ID")
         welcome_channel_id = _env_optional_int("TARVERI_WELCOME_CHANNEL_ID", "WELCOME_CHANNEL_ID")
@@ -546,19 +546,42 @@ class Settings:
 
         enable_outage_watchdog = _env_bool("TARVERI_ENABLE_OUTAGE_WATCHDOG", "ENABLE_OUTAGE_WATCHDOG", default=True)
         outage_timeout_seconds = _env_int("TARVERI_OUTAGE_TIMEOUT_SECONDS", "OUTAGE_TIMEOUT_SECONDS", default=300)
-        outage_probe_interval_seconds = _env_int("TARVERI_OUTAGE_PROBE_INTERVAL_SECONDS", "OUTAGE_PROBE_INTERVAL_SECONDS", default=15)
-        outage_alert_grace_seconds = _env_int("TARVERI_OUTAGE_ALERT_GRACE_SECONDS", "OUTAGE_ALERT_GRACE_SECONDS", default=20)
+        outage_probe_interval_seconds = _env_int(
+            "TARVERI_OUTAGE_PROBE_INTERVAL_SECONDS", "OUTAGE_PROBE_INTERVAL_SECONDS", default=15
+        )
+        outage_alert_grace_seconds = _env_int(
+            "TARVERI_OUTAGE_ALERT_GRACE_SECONDS", "OUTAGE_ALERT_GRACE_SECONDS", default=20
+        )
 
-        enable_graduation_watchdog = _env_bool("TARVERI_ENABLE_GRADUATION_WATCHDOG", "ENABLE_GRADUATION_WATCHDOG", default=True)
-        graduation_check_interval_hours = _env_int("TARVERI_GRADUATION_CHECK_INTERVAL_HOURS", "GRADUATION_CHECK_INTERVAL_HOURS", default=24)
-        graduation_prompt_cooldown_days = _env_int("TARVERI_GRADUATION_PROMPT_COOLDOWN_DAYS", "GRADUATION_PROMPT_COOLDOWN_DAYS", default=7)
+        enable_graduation_watchdog = _env_bool(
+            "TARVERI_ENABLE_GRADUATION_WATCHDOG", "ENABLE_GRADUATION_WATCHDOG", default=True
+        )
+        graduation_check_interval_hours = _env_int(
+            "TARVERI_GRADUATION_CHECK_INTERVAL_HOURS", "GRADUATION_CHECK_INTERVAL_HOURS", default=24
+        )
+        graduation_prompt_cooldown_days = _env_int(
+            "TARVERI_GRADUATION_PROMPT_COOLDOWN_DAYS", "GRADUATION_PROMPT_COOLDOWN_DAYS", default=7
+        )
 
-        enable_email_verification = _env_bool("TARVERI_EMAIL_VERIFICATION_ENABLED", "EMAIL_VERIFICATION_ENABLED", "ENABLE_EMAIL_VERIFICATION", default=False)
-        enable_email_role_enforcement = _env_bool("TARVERI_ENABLE_EMAIL_ROLE_ENFORCEMENT", "ENABLE_EMAIL_ROLE_ENFORCEMENT", "TARVERI_EMAIL_ROLE_ENFORCEMENT", default=False)
-        email_domains_raw = _env_str("TARVERI_EMAIL_ALLOWED_DOMAINS", "EMAIL_ALLOWED_DOMAINS", default="student.tarc.edu.my,tarc.edu.my")
-        email_allowed_domains = tuple(
-            d.strip().lower() for d in email_domains_raw.split(",") if d.strip()
-        ) or ("student.tarc.edu.my", "tarc.edu.my")
+        enable_email_verification = _env_bool(
+            "TARVERI_EMAIL_VERIFICATION_ENABLED",
+            "EMAIL_VERIFICATION_ENABLED",
+            "ENABLE_EMAIL_VERIFICATION",
+            default=False,
+        )
+        enable_email_role_enforcement = _env_bool(
+            "TARVERI_ENABLE_EMAIL_ROLE_ENFORCEMENT",
+            "ENABLE_EMAIL_ROLE_ENFORCEMENT",
+            "TARVERI_EMAIL_ROLE_ENFORCEMENT",
+            default=False,
+        )
+        email_domains_raw = _env_str(
+            "TARVERI_EMAIL_ALLOWED_DOMAINS", "EMAIL_ALLOWED_DOMAINS", default="student.tarc.edu.my,tarc.edu.my"
+        )
+        email_allowed_domains = tuple(d.strip().lower() for d in email_domains_raw.split(",") if d.strip()) or (
+            "student.tarc.edu.my",
+            "tarc.edu.my",
+        )
         email_encryption_key = _env_str("TARVERI_EMAIL_ENCRYPTION_KEY", "EMAIL_ENCRYPTION_KEY")
 
         smtp_host = _env_str("TARVERI_SMTP_HOST", "SMTP_HOST", default="mail.smtp2go.com")
@@ -566,7 +589,11 @@ class Settings:
         smtp_user = _env_str("TARVERI_SMTP_USER", "SMTP_USER")
         smtp_password = _env_str("TARVERI_SMTP_PASSWORD", "SMTP_PASSWORD")
         smtp_from_email = _env_str("TARVERI_SMTP_FROM_EMAIL", "SMTP_FROM_EMAIL", default="noreply@muwa.work")
-        smtp_from_name = _env_str("TARVERI_SMTP_FROM_NAME", "SMTP_FROM_NAME", default="TARVeri Student Verification").strip('"').strip("'")
+        smtp_from_name = (
+            _env_str("TARVERI_SMTP_FROM_NAME", "SMTP_FROM_NAME", default="TARVeri Student Verification")
+            .strip('"')
+            .strip("'")
+        )
         smtp_use_tls = _env_bool("TARVERI_SMTP_USE_TLS", "SMTP_USE_TLS", default=True)
 
         smtp_fallback_host = _env_str("TARVERI_SMTP_FALLBACK_HOST", "SMTP_FALLBACK_HOST")
@@ -574,27 +601,41 @@ class Settings:
         smtp_fallback_user = _env_str("TARVERI_SMTP_FALLBACK_USER", "SMTP_FALLBACK_USER")
         smtp_fallback_password = _env_str("TARVERI_SMTP_FALLBACK_PASSWORD", "SMTP_FALLBACK_PASSWORD")
         smtp_fallback_from_email = _env_str("TARVERI_SMTP_FALLBACK_FROM_EMAIL", "SMTP_FALLBACK_FROM_EMAIL")
-        smtp_fallback_from_name = _env_str("TARVERI_SMTP_FALLBACK_FROM_NAME", "SMTP_FALLBACK_FROM_NAME").strip('"').strip("'")
+        smtp_fallback_from_name = (
+            _env_str("TARVERI_SMTP_FALLBACK_FROM_NAME", "SMTP_FALLBACK_FROM_NAME").strip('"').strip("'")
+        )
         smtp_fallback_use_tls = _env_bool("TARVERI_SMTP_FALLBACK_USE_TLS", "SMTP_FALLBACK_USE_TLS", default=True)
 
         email_otp_ttl_seconds = _env_int("TARVERI_EMAIL_OTP_TTL_SECONDS", "EMAIL_OTP_TTL_SECONDS", default=600)
         email_otp_max_attempts = _env_int("TARVERI_EMAIL_OTP_MAX_ATTEMPTS", "EMAIL_OTP_MAX_ATTEMPTS", default=3)
-        email_otp_resend_cooldown_seconds = _env_int("TARVERI_EMAIL_OTP_RESEND_COOLDOWN_SECONDS", "EMAIL_OTP_RESEND_COOLDOWN_SECONDS", default=60)
-        email_restrict_smtp_usage = _env_bool("TARVERI_EMAIL_RESTRICT_SMTP_USAGE", "EMAIL_RESTRICT_SMTP_USAGE", "TARVERI_RESTRICT_SMTP_USAGE", "RESTRICT_SMTP_USAGE", default=True)
+        email_otp_resend_cooldown_seconds = _env_int(
+            "TARVERI_EMAIL_OTP_RESEND_COOLDOWN_SECONDS", "EMAIL_OTP_RESEND_COOLDOWN_SECONDS", default=60
+        )
+        email_restrict_smtp_usage = _env_bool(
+            "TARVERI_EMAIL_RESTRICT_SMTP_USAGE",
+            "EMAIL_RESTRICT_SMTP_USAGE",
+            "TARVERI_RESTRICT_SMTP_USAGE",
+            "RESTRICT_SMTP_USAGE",
+            default=True,
+        )
 
         sentry_dsn = _env_str("TARVERI_SENTRY_DSN", "SENTRY_DSN")
         circuit_breaker_fail_max = _env_int("TARVERI_CIRCUIT_BREAKER_FAIL_MAX", "CIRCUIT_BREAKER_FAIL_MAX", default=3)
-        circuit_breaker_reset_timeout = _env_int("TARVERI_CIRCUIT_BREAKER_RESET_TIMEOUT", "CIRCUIT_BREAKER_RESET_TIMEOUT", default=300)
+        circuit_breaker_reset_timeout = _env_int(
+            "TARVERI_CIRCUIT_BREAKER_RESET_TIMEOUT", "CIRCUIT_BREAKER_RESET_TIMEOUT", default=300
+        )
         max_storage_mb = _env_int("TARVERI_MAX_STORAGE_MB", "MAX_STORAGE_MB", default=500)
         enable_storage_guard = _env_bool("TARVERI_ENABLE_STORAGE_GUARD", "ENABLE_STORAGE_GUARD", default=True)
-        storage_check_interval_hours = _env_int("TARVERI_STORAGE_CHECK_INTERVAL_HOURS", "STORAGE_CHECK_INTERVAL_HOURS", default=6)
-        mass_revocation_threshold = _env_int("TARVERI_MASS_REVOCATION_THRESHOLD", "MASS_REVOCATION_THRESHOLD", default=5)
+        storage_check_interval_hours = _env_int(
+            "TARVERI_STORAGE_CHECK_INTERVAL_HOURS", "STORAGE_CHECK_INTERVAL_HOURS", default=6
+        )
+        mass_revocation_threshold = _env_int(
+            "TARVERI_MASS_REVOCATION_THRESHOLD", "MASS_REVOCATION_THRESHOLD", default=5
+        )
 
         if validate:
             if not bot_token:
-                raise RuntimeError(
-                    "TARVERI_BOT_TOKEN is not set. Put it in a .env file or the environment."
-                )
+                raise RuntimeError("TARVERI_BOT_TOKEN is not set. Put it in a .env file or the environment.")
             if not id_hash_secret:
                 raise RuntimeError(
                     "TARVERI_ID_HASH_SECRET is not set. Generate one with: "
@@ -816,9 +857,7 @@ def setup_logger(
 def hash_student_id(student_id: str, secret: str) -> str:
     """Deterministic HMAC-SHA256 hash — lets us detect duplicate IDs without
     storing the raw ID at rest."""
-    return hmac.new(
-        secret.encode("utf-8"), student_id.encode("utf-8"), hashlib.sha256
-    ).hexdigest()
+    return hmac.new(secret.encode("utf-8"), student_id.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 def mask_student_id(student_id: str) -> str:
@@ -847,9 +886,7 @@ def decrypt_email(ciphertext: str, encryption_key: str) -> str:
 def hash_email(email: str, secret: str) -> str:
     """Deterministic HMAC-SHA256 hash for blind indexing / fast duplicate checks at rest."""
     normalized = email.strip().lower()
-    return hmac.new(
-        secret.encode("utf-8"), normalized.encode("utf-8"), hashlib.sha256
-    ).hexdigest()
+    return hmac.new(secret.encode("utf-8"), normalized.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 def mask_email(email: str) -> str:
@@ -883,10 +920,10 @@ def is_valid_student_email(
     return any(domain_part == d.lower() or domain_part.endswith(f".{d.lower()}") for d in allowed_domains)
 
 
-
 @dataclass(frozen=True, slots=True)
 class StudentIdInfo:
     """Detailed parsed components of a TARUMT student ID."""
+
     is_valid: bool
     student_id: str
     faculty_code: str | None
@@ -896,8 +933,8 @@ class StudentIdInfo:
     level_code: str | None = None
     level_role: str | None = None
     programme_code: str | None = None  # 3-letter branch/faculty/level prefix (e.g. 'WMR' for '24WMR12331')
-    intake_year: str | None = None      # 2-digit intake year (e.g. '24')
-    sequence: str | None = None         # 5-digit sequence (e.g. '12331')
+    intake_year: str | None = None  # 2-digit intake year (e.g. '24')
+    sequence: str | None = None  # 5-digit sequence (e.g. '12331')
 
 
 def parse_student_id(raw_id: str) -> StudentIdInfo:
@@ -967,21 +1004,36 @@ def is_smtp_bounce_error(error_message: str | Exception) -> tuple[bool, str | No
     """
     err_str = str(error_message)
     # Ignore sender/relay rate limits or relay authentication errors
-    if re.search(r"(sending\s+limit|rate\s+limit|relay\s+access\s+denied|authentication\s+failed|bad\s+credentials)", err_str, re.IGNORECASE):
+    if re.search(
+        r"(sending\s+limit|rate\s+limit|relay\s+access\s+denied|authentication\s+failed|bad\s+credentials)",
+        err_str,
+        re.IGNORECASE,
+    ):
         return False, None, err_str
 
     patterns = [
         (r"\b(5\.1\.1|5\.1\.0|5\.1\.2|5\.2\.1)\b", "550", "Mailbox not found or disabled"),
-        (r"\b550\b.*(user|mailbox|no\s+such|unknown|not\s+found|disabled|rejected|invalid|exist)", "550", "Mailbox not found or disabled"),
-        (r"\b(551|553|554)\b.*(recipient|user|mailbox|address|destination)", "554", "Recipient address rejected by mail server"),
+        (
+            r"\b550\b.*(user|mailbox|no\s+such|unknown|not\s+found|disabled|rejected|invalid|exist)",
+            "550",
+            "Mailbox not found or disabled",
+        ),
+        (
+            r"\b(551|553|554)\b.*(recipient|user|mailbox|address|destination)",
+            "554",
+            "Recipient address rejected by mail server",
+        ),
         (r"\b(552|5\.2\.2)\b", "552", "Recipient mailbox full or quota exceeded"),
-        (r"(user\s+unknown|mailbox\s+unavailable|mailbox\s+not\s+found|recipient\s+rejected|no\s+such\s+user|address\s+rejected|invalid\s+recipient|undeliverable\s+address)", "550", "Recipient address undeliverable / user unknown"),
+        (
+            r"(user\s+unknown|mailbox\s+unavailable|mailbox\s+not\s+found|recipient\s+rejected|no\s+such\s+user|address\s+rejected|invalid\s+recipient|undeliverable\s+address)",
+            "550",
+            "Recipient address undeliverable / user unknown",
+        ),
     ]
     for pat, code, reason in patterns:
         if re.search(pat, err_str, re.IGNORECASE):
             return True, code, reason
     return False, None, err_str
-
 
 
 def validate_student_id(raw_id: str) -> tuple[bool, str, str | None, str | None]:
@@ -1015,18 +1067,30 @@ def parse_card_expiry_date(raw_date: str | None) -> str | None:
         return None
 
     month_names = {
-        "JAN": 1, "JANUARY": 1,
-        "FEB": 2, "FEBRUARY": 2,
-        "MAR": 3, "MARCH": 3,
-        "APR": 4, "APRIL": 4,
+        "JAN": 1,
+        "JANUARY": 1,
+        "FEB": 2,
+        "FEBRUARY": 2,
+        "MAR": 3,
+        "MARCH": 3,
+        "APR": 4,
+        "APRIL": 4,
         "MAY": 5,
-        "JUN": 6, "JUNE": 6,
-        "JUL": 7, "JULY": 7,
-        "AUG": 8, "AUGUST": 8,
-        "SEP": 9, "SEPT": 9, "SEPTEMBER": 9,
-        "OCT": 10, "OCTOBER": 10,
-        "NOV": 11, "NOVEMBER": 11,
-        "DEC": 12, "DECEMBER": 12,
+        "JUN": 6,
+        "JUNE": 6,
+        "JUL": 7,
+        "JULY": 7,
+        "AUG": 8,
+        "AUGUST": 8,
+        "SEP": 9,
+        "SEPT": 9,
+        "SEPTEMBER": 9,
+        "OCT": 10,
+        "OCTOBER": 10,
+        "NOV": 11,
+        "NOVEMBER": 11,
+        "DEC": 12,
+        "DECEMBER": 12,
     }
 
     max_year = datetime.now(get_configured_tz()).year + 100
@@ -1233,8 +1297,3 @@ def estimate_student_card_expiry(student_id: str | None, level_code: str | None 
     else:
         # Default 3 years
         return f"{intake_year + 3:04d}-10-31"
-
-
-
-
-

@@ -212,7 +212,9 @@ async def test_verification_service_with_email_duplicate_guard(tmp_path):
     # First user verifies with email
     with patch.object(service, "get_mutual_guilds_for_user", AsyncMock(return_value=[guild1])):
         with patch.object(service, "assign_role_across_guilds") as mock_assign:
-            mock_assign.return_value = MagicMock(verified_in=[(100, "TARUMT Hub", "FOCS")], already_had_role_in=[], missing_role_in=[], failed_in=[])
+            mock_assign.return_value = MagicMock(
+                verified_in=[(100, "TARUMT Hub", "FOCS")], already_had_role_in=[], missing_role_in=[], failed_in=[]
+            )
             res1 = await service.perform_verification(
                 user1,
                 "23WMD01111",
@@ -275,7 +277,9 @@ async def test_student_otp_modal_submission(tmp_path):
     user.guild = guild
 
     # Generate OTP
-    res_otp = await email_svc.generate_and_send_otp(user_id, "24WMD08888", "24wmd08888@student.tarc.edu.my", server_name="TARUMT Campus")
+    res_otp = await email_svc.generate_and_send_otp(
+        user_id, "24WMD08888", "24wmd08888@student.tarc.edu.my", server_name="TARUMT Campus"
+    )
     assert res_otp["success"] is True
     otp = email_svc.sent_emails[0]["otp"]
 
@@ -292,7 +296,9 @@ async def test_student_otp_modal_submission(tmp_path):
 
     with patch.object(service, "get_mutual_guilds_for_user", AsyncMock(return_value=[guild])):
         with patch.object(service, "assign_role_across_guilds") as mock_assign:
-            mock_assign.return_value = MagicMock(verified_in=[(200, "TARUMT Campus", "FOCS")], already_had_role_in=[], missing_role_in=[], failed_in=[])
+            mock_assign.return_value = MagicMock(
+                verified_in=[(200, "TARUMT Campus", "FOCS")], already_had_role_in=[], missing_role_in=[], failed_in=[]
+            )
             await modal.on_submit(interaction)
 
     interaction.followup.send.assert_called_once()
@@ -326,7 +332,20 @@ async def test_email_service_smtp_fallback_on_primary_failure():
     )
     svc = EmailService(settings, mock_smtp=False)
 
-    async def mock_endpoint(to_email, otp_code, server_name, ttl_minutes, host, port, user, password, from_email, from_name, use_tls, relay_label="SMTP"):
+    async def mock_endpoint(
+        to_email,
+        otp_code,
+        server_name,
+        ttl_minutes,
+        host,
+        port,
+        user,
+        password,
+        from_email,
+        from_name,
+        use_tls,
+        relay_label="SMTP",
+    ):
         if host == "mail.smtp2go.com":
             # Simulate SMTP2GO limit / quota exhausted error
             return False, "550 5.7.1 Daily message sending limit exceeded on SMTP2GO relay"
@@ -366,7 +385,20 @@ async def test_email_service_circuit_breaker_trips_to_instant_fallback():
     )
     svc = EmailService(settings, mock_smtp=False)
 
-    async def mock_endpoint(to_email, otp_code, server_name, ttl_minutes, host, port, user, password, from_email, from_name, use_tls, relay_label="SMTP"):
+    async def mock_endpoint(
+        to_email,
+        otp_code,
+        server_name,
+        ttl_minutes,
+        host,
+        port,
+        user,
+        password,
+        from_email,
+        from_name,
+        use_tls,
+        relay_label="SMTP",
+    ):
         if host == "mail.smtp2go.com":
             return False, "500 Server Error"
         if host == "mail.direct-domain.com":
@@ -452,7 +484,9 @@ async def test_verification_modal_guild_opt_in_and_opt_out(tmp_path):
     await db.connect()
 
     bot = MagicMock()
-    service = VerificationService(bot, db, "secret", RateLimiter(), email_service=EmailService(settings, mock_smtp=True))
+    service = VerificationService(
+        bot, db, "secret", RateLimiter(), email_service=EmailService(settings, mock_smtp=True)
+    )
     email_service = service.email_service
 
     guild_id = 999888
@@ -580,7 +614,9 @@ async def test_otp_slash_command_flow(tmp_path):
     assert "This server has not mandated email verification" in interaction.response.send_message.call_args[0][0]
 
     # 2. Generate OTP for user
-    await email_svc.generate_and_send_otp(user_id, "24WMD07777", "24wmd07777@student.tarc.edu.my", server_name="Test Guild")
+    await email_svc.generate_and_send_otp(
+        user_id, "24WMD07777", "24wmd07777@student.tarc.edu.my", server_name="Test Guild"
+    )
     otp_code = email_svc.sent_emails[0]["otp"]
 
     # 3. Invalid OTP submission
@@ -908,9 +944,3 @@ async def test_email_bounce_detection(tmp_path):
             assert mock_endpoint.call_count == 0
     finally:
         await db.close()
-
-
-
-
-
-

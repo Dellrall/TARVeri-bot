@@ -86,4 +86,3 @@ def test_rate_limiter_capacity_cleanup_trigger():
     assert not limiter.is_rate_limited(999)
     # Expired keys should have been purged
     assert len(limiter._attempts) < 5
-

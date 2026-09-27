@@ -46,52 +46,52 @@ FACULTY_FULL_NAMES: dict[str, str] = {
 # Rich RGB Faculty Color Themes (Primary, Accent, Gradient)
 FACULTY_THEMES: dict[str, dict[str, tuple[int, int, int]]] = {
     "FAFB": {
-        "primary": (169, 50, 38),     # Dark Red
+        "primary": (169, 50, 38),  # Dark Red
         "accent": (235, 150, 140),
         "glow": (217, 83, 79),
     },
     "CPUS": {
-        "primary": (22, 130, 115),    # Dark Teal
+        "primary": (22, 130, 115),  # Dark Teal
         "accent": (115, 205, 195),
         "glow": (26, 188, 156),
     },
     "FOCS": {
-        "primary": (212, 140, 10),    # Golden Amber
+        "primary": (212, 140, 10),  # Golden Amber
         "accent": (250, 215, 120),
         "glow": (241, 196, 15),
     },
     "FCCI": {
-        "primary": (113, 54, 138),    # Violet Purple
+        "primary": (113, 54, 138),  # Violet Purple
         "accent": (195, 155, 220),
         "glow": (142, 68, 173),
     },
     "FOAS": {
-        "primary": (192, 57, 43),     # Coral Crimson
+        "primary": (192, 57, 43),  # Coral Crimson
         "accent": (245, 160, 150),
         "glow": (231, 76, 60),
     },
     "FOBE": {
-        "primary": (30, 132, 73),     # Emerald Green
+        "primary": (30, 132, 73),  # Emerald Green
         "accent": (130, 224, 170),
         "glow": (46, 204, 113),
     },
     "FSSH": {
-        "primary": (36, 113, 163),    # Royal Blue
+        "primary": (36, 113, 163),  # Royal Blue
         "accent": (145, 195, 235),
         "glow": (52, 152, 219),
     },
     "FOET": {
-        "primary": (140, 175, 45),    # Lime Green
+        "primary": (140, 175, 45),  # Lime Green
         "accent": (215, 240, 140),
         "glow": (186, 233, 115),
     },
     "GUEST": {
-        "primary": (26, 150, 120),    # Forest Mint
+        "primary": (26, 150, 120),  # Forest Mint
         "accent": (135, 225, 205),
         "glow": (46, 204, 113),
     },
     "UNVERIFIED": {
-        "primary": (60, 75, 95),      # Slate Gray
+        "primary": (60, 75, 95),  # Slate Gray
         "accent": (160, 175, 195),
         "glow": (100, 115, 140),
     },
@@ -99,22 +99,19 @@ FACULTY_THEMES: dict[str, dict[str, tuple[int, int, int]]] = {
 
 _CUSTOM_FONT = os.getenv("TARVERI_FONT_PATH", "").strip()
 
-FONT_CANDIDATES = (
-    ([_CUSTOM_FONT] if _CUSTOM_FONT else [])
-    + [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
-        "/System/Library/Fonts/Helvetica.ttc",
-        "C:\\Windows\\Fonts\\arial.ttf",
-        "C:\\Windows\\Fonts\\segoeui.ttf",
-    ]
-)
+FONT_CANDIDATES = ([_CUSTOM_FONT] if _CUSTOM_FONT else []) + [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",
+    "C:\\Windows\\Fonts\\arial.ttf",
+    "C:\\Windows\\Fonts\\segoeui.ttf",
+]
 
 
 @functools.lru_cache(maxsize=32)
@@ -149,9 +146,7 @@ class CardService:
         self.db = db
         self.admin_role_name = admin_role_name
 
-    async def get_user_card_data(
-        self, guild: discord.Guild, member: discord.Member | discord.User
-    ) -> dict[str, Any]:
+    async def get_user_card_data(self, guild: discord.Guild, member: discord.Member | discord.User) -> dict[str, Any]:
         """Gathers verified student / guest record and badges for card generation."""
         user_id = member.id
         verification = await self.db.get_verification_by_user(user_id)
@@ -171,9 +166,7 @@ class CardService:
             # Check if user is an approved guest in this guild
             guild_id = getattr(guild, "id", None)
             guest_ticket = (
-                await self.db.get_latest_guest_ticket_for_user(guild_id, user_id)
-                if isinstance(guild_id, int)
-                else None
+                await self.db.get_latest_guest_ticket_for_user(guild_id, user_id) if isinstance(guild_id, int) else None
             )
             if guest_ticket and guest_ticket.get("status") == "APPROVED":
                 faculty_code = "GUEST"
@@ -294,7 +287,9 @@ class CardService:
             is_card_expired = card_expiry_date <= today_str
 
         if is_alumni:
-            cohort_str = f"Class of {graduated_year} • {faculty_name} Alumni" if graduated_year else f"{faculty_name} Alumni"
+            cohort_str = (
+                f"Class of {graduated_year} • {faculty_name} Alumni" if graduated_year else f"{faculty_name} Alumni"
+            )
         elif is_verified_student:
             parts = [campus_name or "TARUMT Main Campus"]
             if level_name:
@@ -332,7 +327,9 @@ class CardService:
     def get_card_color(self, card_data: dict[str, Any]) -> discord.Color:
         """Returns the discord.Color corresponding to the card's faculty theme."""
         theme_key = card_data.get("faculty_name", "UNVERIFIED")
-        theme = FACULTY_THEMES.get(theme_key, FACULTY_THEMES.get(card_data.get("faculty_code", "UNVERIFIED"), FACULTY_THEMES["UNVERIFIED"]))
+        theme = FACULTY_THEMES.get(
+            theme_key, FACULTY_THEMES.get(card_data.get("faculty_code", "UNVERIFIED"), FACULTY_THEMES["UNVERIFIED"])
+        )
         r, g, b = theme["primary"]
         return discord.Color.from_rgb(r, g, b)
 
@@ -359,7 +356,9 @@ def _draw_card_image(data: dict[str, Any], avatar_bytes: bytes | None) -> io.Byt
     """Synchronous Pillow rendering function executed in thread pool."""
     width, height = 920, 530
     theme_key = data.get("faculty_name", "UNVERIFIED")
-    theme = FACULTY_THEMES.get(theme_key, FACULTY_THEMES.get(data.get("faculty_code", "UNVERIFIED"), FACULTY_THEMES["UNVERIFIED"]))
+    theme = FACULTY_THEMES.get(
+        theme_key, FACULTY_THEMES.get(data.get("faculty_code", "UNVERIFIED"), FACULTY_THEMES["UNVERIFIED"])
+    )
 
     primary_color = theme["primary"]
     accent_color = theme["accent"]
@@ -401,7 +400,12 @@ def _draw_card_image(data: dict[str, Any], avatar_bytes: bytes | None) -> io.Byt
     font_header_sub = _load_font(13, bold=True)
     font_header_main = _load_font(22, bold=True)
 
-    draw.text((45, 38), "TUNKU ABDUL RAHMAN UNIVERSITY OF MANAGEMENT AND TECHNOLOGY", fill=(195, 205, 230, 255), font=font_header_sub)
+    draw.text(
+        (45, 38),
+        "TUNKU ABDUL RAHMAN UNIVERSITY OF MANAGEMENT AND TECHNOLOGY",
+        fill=(195, 205, 230, 255),
+        font=font_header_sub,
+    )
     draw.text((45, 58), "TARUMT DIGITAL CAMPUS PASSPORT", fill=(255, 255, 255, 255), font=font_header_main)
 
     # Watermark / Server tag on top right
@@ -451,7 +455,13 @@ def _draw_card_image(data: dict[str, Any], avatar_bytes: bytes | None) -> io.Byt
         draw.rounded_rectangle(avatar_box, radius=16, fill=(*primary_color, 120))
         initial = (data["display_name"][:1] or "?").upper()
         font_initial = _load_font(80, bold=True)
-        draw.text((avatar_box[0] + avatar_size // 2, avatar_box[1] + avatar_size // 2), initial, fill=(255, 255, 255, 255), font=font_initial, anchor="mm")
+        draw.text(
+            (avatar_box[0] + avatar_size // 2, avatar_box[1] + avatar_size // 2),
+            initial,
+            fill=(255, 255, 255, 255),
+            font=font_initial,
+            anchor="mm",
+        )
 
     # Status Pill underneath Avatar (with dynamic high-contrast font color)
     status_y = avatar_box[3] + 14
@@ -502,7 +512,13 @@ def _draw_card_image(data: dict[str, Any], avatar_bytes: bytes | None) -> io.Byt
     fac_bbox = draw.textbbox((0, 0), fac_name, font=font_fac_bold)
     fac_w = fac_bbox[2] - fac_bbox[0]
 
-    draw.rounded_rectangle((info_x, box_y, width - 45, box_y + 46), radius=10, fill=(22, 26, 40, 255), outline=(*primary_color, 160), width=1)
+    draw.rounded_rectangle(
+        (info_x, box_y, width - 45, box_y + 46),
+        radius=10,
+        fill=(22, 26, 40, 255),
+        outline=(*primary_color, 160),
+        width=1,
+    )
     draw.text((info_x + 14, box_y + 13), fac_name, fill=(*glow_color, 255), font=font_fac_bold)
     draw.text((info_x + 14 + fac_w + 12, box_y + 14), f"•  {fac_full}", fill=(215, 225, 245, 255), font=font_fac_sub)
 
@@ -524,7 +540,9 @@ def _draw_card_image(data: dict[str, Any], avatar_bytes: bytes | None) -> io.Byt
     draw.text((col1_x, row2_y + 19), data["hash_preview"], fill=(*accent_color, 255), font=_load_font(20, bold=True))
 
     draw.text((col2_x, row2_y), "CAMPUS COHORT", fill=(145, 160, 190, 255), font=font_label)
-    cohort_str = data.get("cohort_str") or ("TARUMT Main Campus" if data["is_student"] else ("Verified Affiliate" if data["is_guest"] else "Public Guest"))
+    cohort_str = data.get("cohort_str") or (
+        "TARUMT Main Campus" if data["is_student"] else ("Verified Affiliate" if data["is_guest"] else "Public Guest")
+    )
     if len(cohort_str) > 34:
         cohort_str = cohort_str[:32] + "..."
     draw.text((col2_x, row2_y + 19), cohort_str, fill=(255, 255, 255, 255), font=font_value)
@@ -545,7 +563,9 @@ def _draw_card_image(data: dict[str, Any], avatar_bytes: bytes | None) -> io.Byt
         # Prevent overlapping the chip
         if bx + b_width > chip_x - 12:
             break
-        draw.rounded_rectangle((bx, by, bx + b_width, by + 34), radius=9, fill=(28, 34, 52, 255), outline=(60, 72, 105, 255), width=1)
+        draw.rounded_rectangle(
+            (bx, by, bx + b_width, by + 34), radius=9, fill=(28, 34, 52, 255), outline=(60, 72, 105, 255), width=1
+        )
         draw.text((bx + b_width // 2, by + 17), badge, fill=(235, 245, 255, 255), font=font_b, anchor="mm")
         bx += b_width + 8
 
@@ -553,11 +573,19 @@ def _draw_card_image(data: dict[str, Any], avatar_bytes: bytes | None) -> io.Byt
     chip_y = 380
 
     # Gold Security Smart Chip
-    draw.rounded_rectangle((chip_x, chip_y, chip_x + 70, chip_y + 52), radius=6, fill=(218, 180, 60, 250), outline=(190, 150, 35, 255), width=1)
+    draw.rounded_rectangle(
+        (chip_x, chip_y, chip_x + 70, chip_y + 52),
+        radius=6,
+        fill=(218, 180, 60, 250),
+        outline=(190, 150, 35, 255),
+        width=1,
+    )
     # Chip circuit patterns
     draw.line([(chip_x + 10, chip_y + 26), (chip_x + 60, chip_y + 26)], fill=(160, 125, 25, 255), width=2)
     draw.line([(chip_x + 35, chip_y + 8), (chip_x + 35, chip_y + 44)], fill=(160, 125, 25, 255), width=2)
-    draw.rounded_rectangle((chip_x + 24, chip_y + 17, chip_x + 46, chip_y + 35), radius=4, outline=(160, 125, 25, 255), width=1)
+    draw.rounded_rectangle(
+        (chip_x + 24, chip_y + 17, chip_x + 46, chip_y + 35), radius=4, outline=(160, 125, 25, 255), width=1
+    )
 
     # Barcode lines next to chip
     barcode_x = chip_x + 82
@@ -567,7 +595,13 @@ def _draw_card_image(data: dict[str, Any], avatar_bytes: bytes | None) -> io.Byt
         draw.line([(bx_line, chip_y + 4), (bx_line, chip_y + 48)], fill=(160, 175, 205, 220), width=bar_w)
 
     # Footer verification watermark
-    draw.text((width - 45, height - 32), "TARVeri Verified • Instant & Tamper-Proof", fill=(110, 125, 155, 255), font=_load_font(12, bold=False), anchor="ra")
+    draw.text(
+        (width - 45, height - 32),
+        "TARVeri Verified • Instant & Tamper-Proof",
+        fill=(110, 125, 155, 255),
+        font=_load_font(12, bold=False),
+        anchor="ra",
+    )
 
     # Output to BytesIO PNG
     buffer = io.BytesIO()

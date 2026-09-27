@@ -91,8 +91,7 @@ def test_daily_rotating_file_handler(tmp_path):
 
     # 1. Log record for 2026-09-10
     record1 = logging.LogRecord(
-        name="test", level=logging.INFO, pathname="test.py", lineno=1,
-        msg="First daily message", args=(), exc_info=None
+        name="test", level=logging.INFO, pathname="test.py", lineno=1, msg="First daily message", args=(), exc_info=None
     )
     # Fixed timestamp: 2026-09-10 12:00:00 UTC+8 (1789012800)
     record1.created = 1789012800.0
@@ -106,8 +105,13 @@ def test_daily_rotating_file_handler(tmp_path):
 
     # 2. Log record for next day 2026-09-11
     record2 = logging.LogRecord(
-        name="test", level=logging.INFO, pathname="test.py", lineno=2,
-        msg="Second daily message on next day", args=(), exc_info=None
+        name="test",
+        level=logging.INFO,
+        pathname="test.py",
+        lineno=2,
+        msg="Second daily message on next day",
+        args=(),
+        exc_info=None,
     )
     # Next day timestamp: 2026-09-11 12:00:00 UTC+8 (1789099200)
     record2.created = 1789099200.0

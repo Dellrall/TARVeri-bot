@@ -64,9 +64,7 @@ class RandomTagConfigModal(ui.Modal, title="⚙️ Configure Random Tagging"):
             max_daily_val = max(1, int(self.max_daily.value.strip()))
             chance_val = max(1, int(self.chance.value.strip()))
         except ValueError:
-            await interaction.response.send_message(
-                "❌ Max daily and Chance must be valid integers.", ephemeral=True
-            )
+            await interaction.response.send_message("❌ Max daily and Chance must be valid integers.", ephemeral=True)
             return
 
         # Parse intervals
@@ -117,9 +115,7 @@ class RandomTagDashboardView(ui.View):
         await self.service.update_config(self.guild_id, is_enabled=new_state)
 
         status_text = "🟢 **Enabled**" if new_state else "🔴 **Disabled**"
-        await interaction.response.send_message(
-            f"Random Tagging is now {status_text} in this server.", ephemeral=True
-        )
+        await interaction.response.send_message(f"Random Tagging is now {status_text} in this server.", ephemeral=True)
 
     @ui.button(label="Configure Settings & Words", style=discord.ButtonStyle.secondary, emoji="⚙️", row=0)
     async def configure_modal(self, interaction: discord.Interaction, button: ui.Button) -> None:
@@ -134,9 +130,7 @@ class RandomTagDashboardView(ui.View):
         await self.service.update_config(self.guild_id, word_rotation_mode=new_mode)
 
         mode_name = "Round Robin (Sequential)" if new_mode == "round_robin" else "Uniform Random"
-        await interaction.response.send_message(
-            f"Word rotation mode set to: **{mode_name}**.", ephemeral=True
-        )
+        await interaction.response.send_message(f"Word rotation mode set to: **{mode_name}**.", ephemeral=True)
 
 
 class RandomTagCog(commands.Cog, name="RandomTag"):

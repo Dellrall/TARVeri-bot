@@ -55,7 +55,9 @@ def is_admin_or_has_role(interaction: discord.Interaction, admin_role_name: str)
     admin_role = get_admin_role_or_fallback(interaction.guild, admin_role_name)
     if admin_role and admin_role in interaction.user.roles:
         return True
-    return any(getattr(r, "name", "").lower() == admin_role_name.lower() for r in getattr(interaction.user, "roles", []))
+    return any(
+        getattr(r, "name", "").lower() == admin_role_name.lower() for r in getattr(interaction.user, "roles", [])
+    )
 
 
 class AdminCog(commands.Cog, name="Admin"):
@@ -484,7 +486,9 @@ class AdminCog(commands.Cog, name="Admin"):
                 for r in getattr(member, "roles", [])
                 if any(self.service._match_faculty_role_in_list([r], fac) is not None for fac in FACULTY_ROLE_NAMES)
                 or any(self.service._match_campus_role_in_list([r], camp) is not None for camp in CAMPUS_ROLE_NAMES)
-                or any(self.service._match_study_level_role_in_list([r], lvl) is not None for lvl in STUDY_LEVEL_ROLE_NAMES)
+                or any(
+                    self.service._match_study_level_role_in_list([r], lvl) is not None for lvl in STUDY_LEVEL_ROLE_NAMES
+                )
                 or self.service._match_alumni_role_in_list([r]) is not None
             ]
 
@@ -499,12 +503,7 @@ class AdminCog(commands.Cog, name="Admin"):
 
             for role in roles_to_remove:
                 role_pos = getattr(role, "position", 0)
-                if (
-                    can_manage
-                    and isinstance(bot_pos, int)
-                    and isinstance(role_pos, int)
-                    and role_pos < bot_pos
-                ):
+                if can_manage and isinstance(bot_pos, int) and isinstance(role_pos, int) and role_pos < bot_pos:
                     try:
                         await member.remove_roles(
                             role,
@@ -529,7 +528,9 @@ class AdminCog(commands.Cog, name="Admin"):
         if reason:
             report += f"• **Reason:** *{reason}*\n"
         if roles_removed_servers:
-            report += f"• **Roles removed in {len(roles_removed_servers)} server(s):** {', '.join(roles_removed_servers)}\n"
+            report += (
+                f"• **Roles removed in {len(roles_removed_servers)} server(s):** {', '.join(roles_removed_servers)}\n"
+            )
         else:
             report += "• **Roles removed:** None (member not found or had no roles)\n"
         report += "• **Rate Limiter:** Reset successfully. The user may now verify a new ID."
@@ -612,9 +613,7 @@ class AdminCog(commands.Cog, name="Admin"):
             return
 
         if not interaction.guild:
-            await interaction.response.send_message(
-                "❌ This command can only be used inside a server.", ephemeral=True
-            )
+            await interaction.response.send_message("❌ This command can only be used inside a server.", ephemeral=True)
             schedule_ttl_delete(interaction, delay=60.0)
             return
 
@@ -626,16 +625,26 @@ class AdminCog(commands.Cog, name="Admin"):
             verif_cog = self.bot.get_cog("Verification")
             if verif_cog and hasattr(verif_cog, "invalidate_guild_cache"):
                 verif_cog.invalidate_guild_cache(interaction.guild.id)
-            desc = f"Welcome channel set to {channel.mention}." if channel else "Welcome channel reset to **auto-detect** mode."
+            desc = (
+                f"Welcome channel set to {channel.mention}."
+                if channel
+                else "Welcome channel reset to **auto-detect** mode."
+            )
         elif channel_type == "help":
             await self.db.set_guild_help_channel(interaction.guild.id, channel_id)
             verif_cog = self.bot.get_cog("Verification")
             if verif_cog and hasattr(verif_cog, "invalidate_guild_cache"):
                 verif_cog.invalidate_guild_cache(interaction.guild.id)
-            desc = f"Help channel set to {channel.mention}." if channel else "Help channel reset to **auto-detect** mode."
+            desc = (
+                f"Help channel set to {channel.mention}." if channel else "Help channel reset to **auto-detect** mode."
+            )
         elif channel_type == "review":
             await self.db.set_guild_review_channel(interaction.guild.id, channel_id)
-            desc = f"Guest review channel set to {channel.mention}." if channel else "Guest review channel reset to **auto-detect** mode."
+            desc = (
+                f"Guest review channel set to {channel.mention}."
+                if channel
+                else "Guest review channel reset to **auto-detect** mode."
+            )
 
         await self.db.log(
             "INFO",
@@ -674,9 +683,7 @@ class AdminCog(commands.Cog, name="Admin"):
             return
 
         if not interaction.guild:
-            await interaction.response.send_message(
-                "❌ This command can only be used inside a server.", ephemeral=True
-            )
+            await interaction.response.send_message("❌ This command can only be used inside a server.", ephemeral=True)
             schedule_ttl_delete(interaction, delay=60.0)
             return
 
@@ -717,7 +724,9 @@ class AdminCog(commands.Cog, name="Admin"):
     async def sethelpc(self, interaction: discord.Interaction, channel: discord.TextChannel | None = None) -> None:
         await self.set_channel(interaction, channel_type="help", channel=channel)
 
-    async def setreviewchannel(self, interaction: discord.Interaction, channel: discord.TextChannel | None = None) -> None:
+    async def setreviewchannel(
+        self, interaction: discord.Interaction, channel: discord.TextChannel | None = None
+    ) -> None:
         await self.set_channel(interaction, channel_type="review", channel=channel)
 
     async def setguestrole(self, interaction: discord.Interaction, role_name: str | None = None) -> None:
@@ -793,7 +802,11 @@ class AdminCog(commands.Cog, name="Admin"):
             user_id=interaction.user.id,
         )
 
-        mode_str = "🔴 **ENFORCED (Retroactive role stripping active during self-healing)**" if enabled else "🟢 **DISABLED (Existing verified roles are safely preserved)**"
+        mode_str = (
+            "🔴 **ENFORCED (Retroactive role stripping active during self-healing)**"
+            if enabled
+            else "🟢 **DISABLED (Existing verified roles are safely preserved)**"
+        )
         await interaction.response.send_message(
             f"✅ Email role enforcement for **{interaction.guild.name}** is now {mode_str}.",
             ephemeral=True,
@@ -827,7 +840,9 @@ class AdminCog(commands.Cog, name="Admin"):
     ) -> None:
         """Blacklists a Discord user in this server."""
         if not self._check_admin(interaction):
-            await interaction.response.send_message("❌ You do not have permission to use this command.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this command.", ephemeral=True
+            )
             schedule_ttl_delete(interaction, delay=60.0)
             return
 
@@ -863,7 +878,9 @@ class AdminCog(commands.Cog, name="Admin"):
     ) -> None:
         """Blacklists a Student ID in this server."""
         if not self._check_admin(interaction):
-            await interaction.response.send_message("❌ You do not have permission to use this command.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this command.", ephemeral=True
+            )
             schedule_ttl_delete(interaction, delay=60.0)
             return
 
@@ -899,7 +916,9 @@ class AdminCog(commands.Cog, name="Admin"):
     ) -> None:
         """Blacklists an institutional student email in this server."""
         if not self._check_admin(interaction):
-            await interaction.response.send_message("❌ You do not have permission to use this command.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this command.", ephemeral=True
+            )
             schedule_ttl_delete(interaction, delay=60.0)
             return
 
@@ -935,7 +954,9 @@ class AdminCog(commands.Cog, name="Admin"):
     ) -> None:
         """Removes a target from this server's blacklist."""
         if not self._check_admin(interaction):
-            await interaction.response.send_message("❌ You do not have permission to use this command.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this command.", ephemeral=True
+            )
             schedule_ttl_delete(interaction, delay=60.0)
             return
 
@@ -970,7 +991,9 @@ class AdminCog(commands.Cog, name="Admin"):
     ) -> None:
         """Lists blacklist entries for this server."""
         if not self._check_admin(interaction):
-            await interaction.response.send_message("❌ You do not have permission to use this command.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this command.", ephemeral=True
+            )
             schedule_ttl_delete(interaction, delay=60.0)
             return
 
@@ -1035,7 +1058,9 @@ class AdminCog(commands.Cog, name="Admin"):
     ) -> None:
         """Clears all blacklist entries for this server."""
         if not self._check_admin(interaction):
-            await interaction.response.send_message("❌ You do not have permission to use this command.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this command.", ephemeral=True
+            )
             schedule_ttl_delete(interaction, delay=60.0)
             return
 
@@ -1272,9 +1297,7 @@ class AdminCog(commands.Cog, name="Admin"):
     )
     @app_commands.default_permissions(administrator=True)
     @app_commands.describe(channel="Target channel (defaults to current channel)")
-    async def panel(
-        self, interaction: discord.Interaction, channel: discord.TextChannel | None = None
-    ) -> None:
+    async def panel(self, interaction: discord.Interaction, channel: discord.TextChannel | None = None) -> None:
         """Posts the persistent verification gateway panel."""
         if not self._check_admin(interaction):
             await interaction.response.send_message(
@@ -1305,9 +1328,7 @@ class AdminCog(commands.Cog, name="Admin"):
             )
 
         email_required = (
-            await self.db.is_guild_email_verification_enabled(interaction.guild.id)
-            if interaction.guild
-            else False
+            await self.db.is_guild_email_verification_enabled(interaction.guild.id) if interaction.guild else False
         )
         guild_name = interaction.guild.name if interaction.guild else "the Server"
         embed = build_gateway_panel_embed(guild_name=guild_name, require_email=email_required)
@@ -1323,7 +1344,9 @@ class AdminCog(commands.Cog, name="Admin"):
         schedule_ttl_delete(interaction, delay=60.0)
 
     # Legacy alias
-    async def send_gateway_panel(self, interaction: discord.Interaction, channel: discord.TextChannel | None = None) -> None:
+    async def send_gateway_panel(
+        self, interaction: discord.Interaction, channel: discord.TextChannel | None = None
+    ) -> None:
         await self.panel(interaction, channel=channel)
 
     # ==========================================
@@ -1354,9 +1377,7 @@ class AdminCog(commands.Cog, name="Admin"):
             return
 
         if not interaction.guild:
-            await interaction.response.send_message(
-                "❌ This command can only be used inside a server.", ephemeral=True
-            )
+            await interaction.response.send_message("❌ This command can only be used inside a server.", ephemeral=True)
             schedule_ttl_delete(interaction, delay=60.0)
             return
 
@@ -1366,9 +1387,7 @@ class AdminCog(commands.Cog, name="Admin"):
 
         if not tickets_list:
             filter_text = f" with status `{status}`" if status else ""
-            await interaction.followup.send(
-                f"ℹ️ No guest tickets found in this server{filter_text}.", ephemeral=True
-            )
+            await interaction.followup.send(f"ℹ️ No guest tickets found in this server{filter_text}.", ephemeral=True)
             schedule_ttl_delete(interaction, delay=60.0)
             return
 
@@ -1399,7 +1418,7 @@ class AdminCog(commands.Cog, name="Admin"):
             thread_mention = f"<#{t['channel_id']}>"
             applicant_mention = f"<@{t['applicant_id']}>"
             admin_info = f" • Closed by <@{t['closed_by_admin_id']}>" if t.get("closed_by_admin_id") else ""
-            reason_info = f"\n> Reason: *\"{t['close_reason']}\"*" if t.get("close_reason") else ""
+            reason_info = f'\n> Reason: *"{t["close_reason"]}"*' if t.get("close_reason") else ""
 
             field_name = f"{status_emoji} Ticket #{seq_code} — {t_status}"
             field_value = (
@@ -1470,7 +1489,11 @@ class AdminCog(commands.Cog, name="Admin"):
 
         elif action_val == "list":
             settings = getattr(self.bot, "settings", None)
-            backup_dir = settings.backup_dir if settings and isinstance(getattr(settings, "backup_dir", None), str) else "backups"
+            backup_dir = (
+                settings.backup_dir
+                if settings and isinstance(getattr(settings, "backup_dir", None), str)
+                else "backups"
+            )
             backups = self.db.list_backups(backup_dir=backup_dir)
             if not backups:
                 await interaction.followup.send("ℹ️ No backups currently found.", ephemeral=True)
@@ -1544,7 +1567,11 @@ class AdminCog(commands.Cog, name="Admin"):
         action_val = action.value if hasattr(action, "value") else str(action)
         settings = getattr(self.bot, "settings", None)
         logs_dir = settings.logs_dir if settings and isinstance(getattr(settings, "logs_dir", None), str) else "logs"
-        tz_name = settings.timezone_name if settings and isinstance(getattr(settings, "timezone_name", None), str) else "Asia/Kuala_Lumpur"
+        tz_name = (
+            settings.timezone_name
+            if settings and isinstance(getattr(settings, "timezone_name", None), str)
+            else "Asia/Kuala_Lumpur"
+        )
 
         if action_val == "list":
             daily_logs = list_daily_logs(logs_dir=logs_dir, tz_name=tz_name)
@@ -1572,9 +1599,7 @@ class AdminCog(commands.Cog, name="Admin"):
                 archive_desc = []
                 for ar in archives[:7]:
                     size_kb = ar["size_bytes"] / 1024
-                    archive_desc.append(
-                        f"• 📦 `{ar['filename']}` — {size_kb:.1f} KB ({ar['file_count']} logs bundled)"
-                    )
+                    archive_desc.append(f"• 📦 `{ar['filename']}` — {size_kb:.1f} KB ({ar['file_count']} logs bundled)")
                 embed.add_field(
                     name=f"🗜️ 10-Day Compressed Archives ({len(archives)} total in `{logs_dir}/archives/`)",
                     value="\n".join(archive_desc) if archive_desc else "None",
@@ -1744,12 +1769,8 @@ class AdminCog(commands.Cog, name="Admin"):
         description="Check if bot updates are available from git upstream.",
     )
     @app_commands.default_permissions(administrator=True)
-    @app_commands.describe(
-        stream="Optional branch/stream name to check against (defaults to configured stream)"
-    )
-    async def updates(
-        self, interaction: discord.Interaction, stream: str | None = None
-    ) -> None:
+    @app_commands.describe(stream="Optional branch/stream name to check against (defaults to configured stream)")
+    async def updates(self, interaction: discord.Interaction, stream: str | None = None) -> None:
         """Checks git upstream for new commits on the configured or specified branch."""
         if not self._check_admin(interaction):
             await interaction.response.send_message(
@@ -1768,9 +1789,7 @@ class AdminCog(commands.Cog, name="Admin"):
                 update_stream=stream or "auto",
             )
 
-        is_avail, count, local_h, remote_h, target_stream = await checker.check_for_updates(
-            custom_stream=stream
-        )
+        is_avail, count, local_h, remote_h, target_stream = await checker.check_for_updates(custom_stream=stream)
 
         embed = discord.Embed(
             title="🔄 TARVeri Update Status",
@@ -1789,7 +1808,9 @@ class AdminCog(commands.Cog, name="Admin"):
             )
         else:
             if not remote_h:
-                embed.description = f"⚠️ Could not resolve remote branch `{target_stream}`. Check if the branch exists on remote."
+                embed.description = (
+                    f"⚠️ Could not resolve remote branch `{target_stream}`. Check if the branch exists on remote."
+                )
             else:
                 embed.description = "✅ TARVeri is up to date on this stream!"
 
@@ -1908,9 +1929,7 @@ class AdminCog(commands.Cog, name="Admin"):
 
         if not ticket_data:
             if ticket is not None:
-                await interaction.followup.send(
-                    f"❌ No guest review ticket found matching `{ticket}`.", ephemeral=True
-                )
+                await interaction.followup.send(f"❌ No guest review ticket found matching `{ticket}`.", ephemeral=True)
             else:
                 await interaction.followup.send(
                     "❌ This channel is not an active guest review ticket thread. "
@@ -1939,14 +1958,12 @@ class AdminCog(commands.Cog, name="Admin"):
                     thread = interaction.guild.get_channel(ticket_ch_id)
 
             # If the thread exists and is unarchived or unlocked, cleanly archive it!
-            if thread and (isinstance(thread, discord.Thread) or hasattr(thread, "send")) and (
-                not getattr(thread, "archived", False) or not getattr(thread, "locked", False)
+            if (
+                thread
+                and (isinstance(thread, discord.Thread) or hasattr(thread, "send"))
+                and (not getattr(thread, "archived", False) or not getattr(thread, "locked", False))
             ):
-                reason_note = (
-                    f"\n> **Reason:** *\"{reason.strip()}\"*"
-                    if reason and reason.strip()
-                    else ""
-                )
+                reason_note = f'\n> **Reason:** *"{reason.strip()}"*' if reason and reason.strip() else ""
                 try:
                     res = thread.send(
                         f"🔒 **Ticket thread archived by {interaction.user.mention} via `/admin close_ticket`.**\n"
@@ -1961,6 +1978,7 @@ class AdminCog(commands.Cog, name="Admin"):
                 # Try to update the review embed on the root message
                 try:
                     from tarveri.cogs.guest_cog import build_review_embed
+
                     applicant_member = interaction.guild.get_member(ticket_data["applicant_id"])
                     embed = build_review_embed(
                         ticket_data, interaction.guild, applicant_member, status_override=status_str
@@ -2026,11 +2044,7 @@ class AdminCog(commands.Cog, name="Admin"):
 
             # If inside the thread (or thread is accessible), post closure notice and lock/archive
             if thread and (isinstance(thread, discord.Thread) or hasattr(thread, "send")):
-                reason_note = (
-                    f"\n> **Reason:** *\"{reason.strip()}\"*"
-                    if reason and reason.strip()
-                    else ""
-                )
+                reason_note = f'\n> **Reason:** *"{reason.strip()}"*' if reason and reason.strip() else ""
                 try:
                     res = thread.send(
                         f"🔒 **Ticket manually closed by {interaction.user.mention} via `/admin close_ticket`.**\n"
@@ -2048,6 +2062,7 @@ class AdminCog(commands.Cog, name="Admin"):
                     applicant_member = interaction.guild.get_member(ticket_data["applicant_id"])
                     if updated_ticket:
                         from tarveri.cogs.guest_cog import build_review_embed
+
                         embed = build_review_embed(
                             updated_ticket, interaction.guild, applicant_member, status_override="CLOSED"
                         )
@@ -2055,14 +2070,16 @@ class AdminCog(commands.Cog, name="Admin"):
                         if starter_msg and starter_msg.author.id == self.bot.user.id and hasattr(starter_msg, "edit"):
                             res = starter_msg.edit(embed=embed, view=discord.ui.View())
                             if inspect.isawaitable(res):
-                                 await res
+                                await res
                 except Exception as exc:
                     logger.debug("Failed updating starter message embed: %s", exc)
 
                 await asyncio.sleep(2)
                 try:
                     if hasattr(thread, "edit"):
-                        res = thread.edit(locked=True, archived=True, reason=f"TARVeri: Ticket closed by {interaction.user}")
+                        res = thread.edit(
+                            locked=True, archived=True, reason=f"TARVeri: Ticket closed by {interaction.user}"
+                        )
                         if inspect.isawaitable(res):
                             await res
                 except (discord.HTTPException, Exception) as exc:
@@ -2274,9 +2291,7 @@ class MassRevocationApprovalView(discord.ui.View):
             return
 
         action_id = active["action_id"]
-        success, msg = await self.service.reject_mass_revocation(
-            interaction.guild, action_id, admin=interaction.user
-        )
+        success, msg = await self.service.reject_mass_revocation(interaction.guild, action_id, admin=interaction.user)
 
         embed = discord.Embed(
             title="❌ [Cancelled] Mass Role Revocation Rejected",
@@ -2304,5 +2319,3 @@ class MassRevocationApprovalView(discord.ui.View):
 
 async def setup(bot: commands.Bot) -> None:
     pass
-
-

@@ -103,15 +103,15 @@ class GuestService:
 
             return False, "❌ Failed to generate unique referral code. Please try again."
 
-    async def validate_referral_code(
-        self, guild_id: int, code: str
-    ) -> tuple[bool, str, dict[str, Any] | None]:
+    async def validate_referral_code(self, guild_id: int, code: str) -> tuple[bool, str, dict[str, Any] | None]:
         """
         Validates whether a referral code is usable in this guild.
         Returns (is_valid, error_reason_if_any, code_record).
         Uses a uniform generic error message to prevent oracle/enumeration attacks.
         """
-        generic_error = "❌ Invalid, expired, or already used referral code. Please check with your friend and try again."
+        generic_error = (
+            "❌ Invalid, expired, or already used referral code. Please check with your friend and try again."
+        )
         normalized = code.strip().upper().replace(" ", "")
         if not normalized.startswith("TAR-") and len(normalized) == 6:
             normalized = f"TAR-{normalized}"
@@ -156,8 +156,19 @@ class GuestService:
 
         # 2. Exclude staff/mod/admin restricted channels where normal users are not allowed
         staff_keywords = (
-            "admin", "mod", "staff", "audit", "log", "backups", "database",
-            "secret", "private", "mgmt", "management", "officer", "council"
+            "admin",
+            "mod",
+            "staff",
+            "audit",
+            "log",
+            "backups",
+            "database",
+            "secret",
+            "private",
+            "mgmt",
+            "management",
+            "officer",
+            "council",
         )
         ch_name_lower = ch.name.lower()
         if any(kw in ch_name_lower for kw in staff_keywords):
@@ -225,7 +236,19 @@ class GuestService:
                 )
 
         # 3. Autodetect public user-accessible channels by helpful keywords in priority order
-        keywords = ("ask-for-help", "help", "support", "bantuan", "verification", "verify", "guest", "inquiries", "inquiry", "questions", "general")
+        keywords = (
+            "ask-for-help",
+            "help",
+            "support",
+            "bantuan",
+            "verification",
+            "verify",
+            "guest",
+            "inquiries",
+            "inquiry",
+            "questions",
+            "general",
+        )
         for kw in keywords:
             for ch in getattr(guild, "text_channels", []):
                 if kw in ch.name.lower() and self.is_channel_accessible_for_guest_threads(ch, guild):
@@ -241,7 +264,9 @@ class GuestService:
         can_create_ch = False
         if bot_member:
             guild_perms = getattr(bot_member, "guild_permissions", None)
-            if guild_perms and (getattr(guild_perms, "manage_channels", False) or getattr(guild_perms, "administrator", False)):
+            if guild_perms and (
+                getattr(guild_perms, "manage_channels", False) or getattr(guild_perms, "administrator", False)
+            ):
                 can_create_ch = True
 
         if can_create_ch and hasattr(guild, "create_text_channel"):
@@ -311,7 +336,9 @@ class GuestService:
         for ch in getattr(guild, "text_channels", []):
             if hasattr(ch, "permissions_for") and bot_member:
                 perms = ch.permissions_for(bot_member)
-                if getattr(perms, "view_channel", False) and (getattr(perms, "create_private_threads", False) or getattr(perms, "manage_threads", False)):
+                if getattr(perms, "view_channel", False) and (
+                    getattr(perms, "create_private_threads", False) or getattr(perms, "manage_threads", False)
+                ):
                     return ch
 
         return None
@@ -321,6 +348,7 @@ class GuestService:
         Thoroughly searches for an existing guest role in a guild across in-memory cache and live API.
         Dynamically matches configured names, known aliases, and guest/visitor regex patterns.
         """
+
         def _match_guest_in_list(roles: Sequence[discord.Role]) -> discord.Role | None:
             if not roles:
                 return None
@@ -518,7 +546,11 @@ class GuestService:
 
         # C. Server owner
         owner_obj = getattr(guild, "owner", None)
-        if owner_obj and isinstance(getattr(owner_obj, "id", None), int) and getattr(owner_obj, "bot", None) is not True:
+        if (
+            owner_obj
+            and isinstance(getattr(owner_obj, "id", None), int)
+            and getattr(owner_obj, "bot", None) is not True
+        ):
             admin_members.add(owner_obj)
         elif getattr(guild, "owner_id", None) and isinstance(guild.owner_id, int):
             owner_m = guild.get_member(guild.owner_id)
@@ -532,17 +564,22 @@ class GuestService:
             effective_exclude.add(me_id)
 
         valid_admins = [
-            m for m in admin_members
-            if m and getattr(m, "bot", None) is not True and m.id not in effective_exclude
+            m for m in admin_members if m and getattr(m, "bot", None) is not True and m.id not in effective_exclude
         ]
 
         def authority_key(m: discord.Member) -> tuple[int, int, int, int]:
-            is_owner = 1 if (m == getattr(guild, "owner", None) or getattr(m, "id", None) == getattr(guild, "owner_id", None)) else 0
+            is_owner = (
+                1
+                if (m == getattr(guild, "owner", None) or getattr(m, "id", None) == getattr(guild, "owner_id", None))
+                else 0
+            )
             perms = getattr(m, "guild_permissions", None)
             has_admin = 1 if (perms and getattr(perms, "administrator", None) is True) else 0
             has_manage_guild = 1 if (perms and getattr(perms, "manage_guild", None) is True) else 0
             top_role = getattr(m, "top_role", None)
-            top_role_pos = getattr(top_role, "position", 0) if isinstance(getattr(top_role, "position", None), int) else 0
+            top_role_pos = (
+                getattr(top_role, "position", 0) if isinstance(getattr(top_role, "position", None), int) else 0
+            )
             return (is_owner, has_admin, has_manage_guild, top_role_pos)
 
         valid_admins.sort(key=authority_key, reverse=True)
@@ -567,7 +604,9 @@ class GuestService:
             offline_admins: list[discord.Member] = []
             for m in candidates:
                 status = getattr(m, "status", None)
-                if status in (discord.Status.online, discord.Status.idle, discord.Status.dnd) or str(status).lower() in ("online", "idle", "dnd"):
+                if status in (discord.Status.online, discord.Status.idle, discord.Status.dnd) or str(
+                    status
+                ).lower() in ("online", "idle", "dnd"):
                     active_admins.append(m)
                 else:
                     offline_admins.append(m)
@@ -577,8 +616,7 @@ class GuestService:
 
             if batch:
                 mentions = ", ".join(
-                    m.mention if isinstance(getattr(m, "mention", None), str) else f"<@{m.id}>"
-                    for m in batch
+                    m.mention if isinstance(getattr(m, "mention", None), str) else f"<@{m.id}>" for m in batch
                 )
                 admin_ids = [
                     int(m.id) if (isinstance(getattr(m, "id", None), int) or str(getattr(m, "id", "")).isdigit()) else 0
@@ -606,12 +644,8 @@ class GuestService:
         count: int = 2,
     ) -> str:
         """Convenience method that returns the mention string for the target admin batch."""
-        mention_str, _ = await self.get_target_admin_mentions_batch(
-            guild, count=count, exclude_ids=exclude_ids
-        )
+        mention_str, _ = await self.get_target_admin_mentions_batch(guild, count=count, exclude_ids=exclude_ids)
         return mention_str
-
-
 
     async def open_guest_review_ticket(
         self,
@@ -741,7 +775,9 @@ class GuestService:
             except (discord.HTTPException, discord.Forbidden) as e:
                 if referral_code:
                     await self.db.update_referral_code_status(referral_code, guild.id, "ACTIVE")
-                logger.error(f"Failed to create private thread '{thread_name}' in #{parent_ch.name} ({guild.name}): {e}")
+                logger.error(
+                    f"Failed to create private thread '{thread_name}' in #{parent_ch.name} ({guild.name}): {e}"
+                )
                 return False, f"❌ Failed to create private thread: {e}", None
 
             # 8. Grant thread chat & participation permissions to applicant on parent channel
@@ -816,11 +852,8 @@ class GuestService:
                 except (discord.HTTPException, discord.Forbidden):
                     pass
 
-
             # Determine initial 2 admins to tag
-            _, initial_pinged_ids = await self.get_target_admin_mentions_batch(
-                guild, count=2, exclude_ids=exclude_ids
-            )
+            _, initial_pinged_ids = await self.get_target_admin_mentions_batch(guild, count=2, exclude_ids=exclude_ids)
             pinged_str = ",".join(str(i) for i in initial_pinged_ids) if initial_pinged_ids else ""
             now_ts = now_formatted()
 
@@ -884,9 +917,7 @@ class GuestService:
 
         if applicant_member:
             try:
-                await applicant_member.add_roles(
-                    guest_role, reason=f"TARVeri: Guest approved by {admin_user}"
-                )
+                await applicant_member.add_roles(guest_role, reason=f"TARVeri: Guest approved by {admin_user}")
             except discord.HTTPException as e:
                 return False, f"❌ Failed to assign guest role to applicant: {e}"
 
@@ -900,9 +931,7 @@ class GuestService:
 
         # 2. Update referral code status
         if referral_code:
-            await self.db.update_referral_code_status(
-                referral_code, guild.id, "USED", used_by_discord_id=applicant_id
-            )
+            await self.db.update_referral_code_status(referral_code, guild.id, "USED", used_by_discord_id=applicant_id)
 
         await self.db.log(
             "INFO",
@@ -998,7 +1027,9 @@ class GuestService:
         referral_code = ticket.get("referral_code")
         seq = ticket.get("ticket_seq") or ticket_id
         seq_code = format_ticket_seq(seq)
-        close_reason = reason.strip() if reason and reason.strip() else "Manually closed by administrator (No action taken)"
+        close_reason = (
+            reason.strip() if reason and reason.strip() else "Manually closed by administrator (No action taken)"
+        )
 
         # 0. Atomic DB transition check to ensure idempotency across concurrent admin actions
         closed = await self.db.close_guest_ticket(
@@ -1027,7 +1058,10 @@ class GuestService:
             user_id=applicant_id,
         )
 
-        return True, f"🔒 Guest review ticket #{seq_code} manually closed by {admin_user.mention} (Applicant remains in server, no roles altered)."
+        return (
+            True,
+            f"🔒 Guest review ticket #{seq_code} manually closed by {admin_user.mention} (Applicant remains in server, no roles altered).",
+        )
 
     async def _get_or_fetch_thread(self, guild: discord.Guild, channel_id: int | None) -> discord.Thread | None:
         """Helper to resolve a thread by ID from in-memory cache or Discord API fetch."""
@@ -1124,6 +1158,7 @@ class GuestService:
                     # Try to update starter review embed if found
                     try:
                         from tarveri.cogs.guest_cog import build_review_embed
+
                         starter_msg = getattr(thread, "starter_message", None)
                         if starter_msg and hasattr(starter_msg, "edit"):
                             embed = build_review_embed(
@@ -1158,6 +1193,7 @@ class GuestService:
 
                         try:
                             from tarveri.cogs.guest_cog import build_review_embed
+
                             starter_msg = getattr(thread, "starter_message", None)
                             if starter_msg and hasattr(starter_msg, "edit"):
                                 applicant_member = guild.get_member(t["applicant_id"])
@@ -1169,7 +1205,9 @@ class GuestService:
                             logger.debug("Failed updating referrer review message: %s", exc)
 
                         try:
-                            await thread.edit(archived=True, locked=True, reason=f"TARVeri: Referrer {reason_msg} server")
+                            await thread.edit(
+                                archived=True, locked=True, reason=f"TARVeri: Referrer {reason_msg} server"
+                            )
                         except (discord.HTTPException, discord.Forbidden):
                             pass
 
@@ -1184,9 +1222,7 @@ class GuestService:
         revoked_referred_tickets = await self.db.cancel_open_tickets_referred_by_user(
             guild.id, user.id, close_reason=referrer_close_reason
         )
-        revoked_referrals = await self.db.revoke_active_referrals_for_user(
-            guild.id, user.id, status=revocation_status
-        )
+        revoked_referrals = await self.db.revoke_active_referrals_for_user(guild.id, user.id, status=revocation_status)
 
         action_type = "GUEST_REVOKED_ON_BAN" if is_ban else "GUEST_REVOKED_ON_LEAVE"
         action_verb = "banned from" if is_ban else "left / was removed from"
@@ -1255,7 +1291,9 @@ class GuestService:
                 thread = await self._get_or_fetch_thread(guild, t["channel_id"])
                 if thread and not getattr(thread, "archived", False):
                     try:
-                        await thread.send("🛑 **Guest applicant left or was removed from server during maintenance.** Thread archived.")
+                        await thread.send(
+                            "🛑 **Guest applicant left or was removed from server during maintenance.** Thread archived."
+                        )
                         await thread.edit(archived=True, locked=True)
                     except (discord.HTTPException, discord.Forbidden):
                         pass
@@ -1283,7 +1321,9 @@ class GuestService:
 
                 if thread and not getattr(thread, "archived", False):
                     try:
-                        await thread.send("✅ **Guest role was already granted to applicant.** Review ticket auto-resolved.")
+                        await thread.send(
+                            "✅ **Guest role was already granted to applicant.** Review ticket auto-resolved."
+                        )
                         await thread.edit(archived=True, locked=True)
                     except (discord.HTTPException, discord.Forbidden):
                         pass
@@ -1323,7 +1363,9 @@ class GuestService:
                     thread = await self._get_or_fetch_thread(guild, t["channel_id"])
                     if thread and not getattr(thread, "archived", False):
                         try:
-                            await thread.send("🛑 **Referring student left or was removed from server during maintenance.** Application cancelled.")
+                            await thread.send(
+                                "🛑 **Referring student left or was removed from server during maintenance.** Application cancelled."
+                            )
                             await thread.edit(archived=True, locked=True)
                         except (discord.HTTPException, discord.Forbidden):
                             pass
@@ -1356,12 +1398,12 @@ class GuestService:
                     creator = None
 
             if not creator:
-                await self.db.revoke_active_referrals_for_user(
-                    guild.id, creator_id, status="LEFT_SERVER"
-                )
+                await self.db.revoke_active_referrals_for_user(guild.id, creator_id, status="LEFT_SERVER")
                 summary["reconciled_referrals"] += 1
 
-        total_reconciled = summary["reconciled_tickets"] + summary["reconciled_referrals"] + summary["expired_referrals"]
+        total_reconciled = (
+            summary["reconciled_tickets"] + summary["reconciled_referrals"] + summary["expired_referrals"]
+        )
         if total_reconciled > 0:
             await self.db.log(
                 "INFO",
@@ -1462,8 +1504,7 @@ class GuestService:
                     continue
 
                 updated_pinged_ids = {
-                    int(x) for x in already_pinged_ids | set(next_ids)
-                    if isinstance(x, int) or str(x).isdigit()
+                    int(x) for x in already_pinged_ids | set(next_ids) if isinstance(x, int) or str(x).isdigit()
                 }
                 pinged_str = ",".join(str(i) for i in sorted(updated_pinged_ids))
                 await self.db.update_guest_ticket_escalation(ticket_id, pinged_str, now_formatted())
@@ -1511,20 +1552,15 @@ class GuestService:
             self._escalation_task = None
             logger.info("Ticket escalation background task stopped.")
 
-    async def _escalation_loop(
-        self, check_interval_seconds: float, escalation_delay_seconds: float
-    ) -> None:
+    async def _escalation_loop(self, check_interval_seconds: float, escalation_delay_seconds: float) -> None:
         """Background loop executing check_and_escalate_tickets periodically."""
         try:
             while True:
                 await asyncio.sleep(check_interval_seconds)
                 try:
                     if self.db and self.db.is_connected:
-                        await self.check_and_escalate_tickets(
-                            interval_seconds=escalation_delay_seconds
-                        )
+                        await self.check_and_escalate_tickets(interval_seconds=escalation_delay_seconds)
                 except Exception as e:
                     logger.error(f"Error in ticket escalation loop: {e}", exc_info=True)
         except asyncio.CancelledError:
             pass
-

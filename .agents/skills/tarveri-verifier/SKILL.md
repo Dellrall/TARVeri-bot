@@ -350,11 +350,12 @@ garage bucket allow --read --write --owner tarveri-media --key tarveri-bot-key
 import aioboto3
 from tarveri.config import settings
 
+
 class MediaStorageService:
     def __init__(self):
         self.session = aioboto3.Session()
         self.endpoint_url = settings.s3_endpoint_url  # e.g. "http://127.0.0.1:3900"
-        self.bucket = settings.s3_bucket_name         # "tarveri-media"
+        self.bucket = settings.s3_bucket_name  # "tarveri-media"
 
     async def put_media(self, key: str, data: bytes, content_type: str = "image/png") -> str:
         async with self.session.client(

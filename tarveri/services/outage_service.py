@@ -19,9 +19,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger("tarveri")
 
 DEFAULT_PROBE_TARGETS: tuple[tuple[str, int], ...] = (
-    ("1.1.1.1", 53),      # Cloudflare DNS (Raw IP - no DNS dependency)
-    ("8.8.8.8", 53),      # Google DNS (Raw IP - no DNS dependency)
-    ("discord.com", 443), # Discord HTTPS API
+    ("1.1.1.1", 53),  # Cloudflare DNS (Raw IP - no DNS dependency)
+    ("8.8.8.8", 53),  # Google DNS (Raw IP - no DNS dependency)
+    ("discord.com", 443),  # Discord HTTPS API
 )
 
 
@@ -131,7 +131,9 @@ class OutageService:
             self._disconnect_walltime = now_formatted()
             self._alert_logged = False
             self._last_progress_log_time = time.monotonic()
-            logger.debug(f"Discord gateway connection dropped at {self._disconnect_walltime}. Watchdog monitoring started.")
+            logger.debug(
+                f"Discord gateway connection dropped at {self._disconnect_walltime}. Watchdog monitoring started."
+            )
 
     def on_reconnect(self) -> None:
         """Invoked when Discord gateway reconnects or resumes."""
@@ -188,7 +190,11 @@ class OutageService:
 
                     if should_alert and not self._alert_logged:
                         self._alert_logged = True
-                        net_status = "Internet Unreachable / Offline (Local Network or Power Loss)" if not reachable else f"Internet Online ({latency:.1f}ms) - Discord Gateway Reconnecting"
+                        net_status = (
+                            "Internet Unreachable / Offline (Local Network or Power Loss)"
+                            if not reachable
+                            else f"Internet Online ({latency:.1f}ms) - Discord Gateway Reconnecting"
+                        )
                         logger.warning(
                             f"⚠️ [OutageWatchdog] Outage detected at {self._disconnect_walltime} ({net_status}). "
                             f"Starting {remaining:.0f}s grace countdown before emergency graceful shutdown..."
@@ -196,7 +202,9 @@ class OutageService:
 
                     if elapsed >= self.timeout_seconds:
                         self._shutdown_triggered = True
-                        self._shutdown_reason = f"Network outage exceeded {self.timeout_seconds}s limit ({elapsed:.1f}s total downtime)"
+                        self._shutdown_reason = (
+                            f"Network outage exceeded {self.timeout_seconds}s limit ({elapsed:.1f}s total downtime)"
+                        )
                         logger.critical(
                             f"🛑 [OutageWatchdog] Outage persisted for {elapsed:.1f}s (limit: {self.timeout_seconds}s). "
                             f"{probe_desc}. Executing emergency graceful shutdown..."

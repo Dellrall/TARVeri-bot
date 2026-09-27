@@ -161,9 +161,9 @@ class StorageGuardService:
             msg = (
                 f"🚨 Storage Guard [{status_label}]: Total storage {usage.total_mb}MB exceeds "
                 f"{'limit' if usage.is_critical else '80% threshold'} of {usage.max_mb}MB "
-                f"({usage.usage_percent}% used). Details: DB={round(usage.db_bytes/1048576, 2)}MB, "
-                f"WAL={round(usage.wal_bytes/1048576, 2)}MB, Backups={round(usage.backups_bytes/1048576, 2)}MB, "
-                f"Logs={round(usage.logs_bytes/1048576, 2)}MB."
+                f"({usage.usage_percent}% used). Details: DB={round(usage.db_bytes / 1048576, 2)}MB, "
+                f"WAL={round(usage.wal_bytes / 1048576, 2)}MB, Backups={round(usage.backups_bytes / 1048576, 2)}MB, "
+                f"Logs={round(usage.logs_bytes / 1048576, 2)}MB."
             )
             if usage.is_critical:
                 logger.error(msg)
@@ -178,9 +178,7 @@ class StorageGuardService:
             result["self_healed"] = True
             result["reclaimed_mb"] = round(reclaimed_bytes / (1024 * 1024), 2)
         else:
-            logger.debug(
-                f"Storage guard check passed: {usage.total_mb}MB / {usage.max_mb}MB ({usage.usage_percent}%)."
-            )
+            logger.debug(f"Storage guard check passed: {usage.total_mb}MB / {usage.max_mb}MB ({usage.usage_percent}%).")
 
         return result
 
@@ -188,6 +186,7 @@ class StorageGuardService:
         """Captures a telemetry event in Sentry with storage metrics."""
         try:
             import sentry_sdk
+
             if not getattr(sentry_sdk, "is_initialized", lambda: False)() and not self.settings.sentry_dsn:
                 return
 
@@ -229,6 +228,7 @@ class StorageGuardService:
         try:
             # 3. Rotate backups keeping only top 3
             from tarveri.database import rotate_backups
+
             rotate_backups(self.settings.backup_dir, max_backups=max(3, self.settings.max_backups // 2))
         except Exception as e:
             logger.warning(f"Storage guard failed to prune backups: {e}", exc_info=True)

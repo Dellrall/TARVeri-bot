@@ -92,6 +92,7 @@ async def test_database_backup_rotation(tmp_path):
         rotate_daily_backups,
         rotate_update_backups,
     )
+
     db_file = str(tmp_path / "original_rot.db")
     backup_dir = str(tmp_path / "backups_rot")
     os.makedirs(backup_dir, exist_ok=True)
@@ -343,7 +344,9 @@ async def test_guest_tickets_reason_giver_and_comments(tmp_path):
     assert ticket_rej["close_reason"] == rej_reason
 
     # 5. Revocation reason when leaving server
-    await db.revoke_guest_tickets_for_user(guild_id, applicant_id, status="LEFT_SERVER", close_reason="User left server")
+    await db.revoke_guest_tickets_for_user(
+        guild_id, applicant_id, status="LEFT_SERVER", close_reason="User left server"
+    )
     ticket_revoked = await db.get_guest_ticket_by_id(ticket_id)
     assert ticket_revoked["status"] == "LEFT_SERVER"
     assert ticket_revoked["close_reason"] == "User left server"
@@ -384,12 +387,8 @@ async def test_database_backwards_compatibility_migration(tmp_path):
             created_at TEXT NOT NULL
         );"""
     )
-    cursor.execute(
-        "INSERT INTO verifications VALUES (11111, 'hash_legacy', 'M', '2025-01-01 10:00:00');"
-    )
-    cursor.execute(
-        "INSERT INTO guild_settings VALUES (99999, 12345, 67890, '2025-01-01 10:00:00');"
-    )
+    cursor.execute("INSERT INTO verifications VALUES (11111, 'hash_legacy', 'M', '2025-01-01 10:00:00');")
+    cursor.execute("INSERT INTO guild_settings VALUES (99999, 12345, 67890, '2025-01-01 10:00:00');")
     cursor.execute(
         "INSERT INTO guest_tickets (guild_id, applicant_id, channel_id, created_at) VALUES (99999, 22222, 33333, '2025-01-01 10:00:00');"
     )
@@ -684,12 +683,8 @@ async def test_database_backfill_legacy_verifications(tmp_path):
                 verified_at TEXT NOT NULL
             );"""
         )
-        await conn.execute(
-            "INSERT INTO verifications VALUES (101, 'hash101', 'M', '2024-01-01 10:00:00');"
-        )
-        await conn.execute(
-            "INSERT INTO verifications VALUES (102, 'hash102', 'B', '2024-01-02 11:00:00');"
-        )
+        await conn.execute("INSERT INTO verifications VALUES (101, 'hash101', 'M', '2024-01-01 10:00:00');")
+        await conn.execute("INSERT INTO verifications VALUES (102, 'hash102', 'B', '2024-01-02 11:00:00');")
         await conn.commit()
 
     # 2. Connect Database (triggers automatic migration and backfill)
@@ -865,7 +860,3 @@ async def test_database_bounced_emails(tmp_path):
         assert await db.is_email_bounced(e_hash) is False
     finally:
         await db.close()
-
-
-
-

@@ -58,7 +58,9 @@ def main() -> None:
     else:
         print(f"\nConfigured Servers ({len(rows)} server(s) in SQLite 'guild_settings'):")
         print("-" * 105)
-        print(f"{'Guild ID':<20} | {'Welcome Channel':<18} | {'Help Channel':<18} | {'Guest Role':<15} | {'Review Channel':<18}")
+        print(
+            f"{'Guild ID':<20} | {'Welcome Channel':<18} | {'Help Channel':<18} | {'Guest Role':<15} | {'Review Channel':<18}"
+        )
         print("-" * 105)
         for g_id, w_id, h_id, g_role, r_id, updated in rows:
             w_str = str(w_id) if w_id else "Auto-detect"

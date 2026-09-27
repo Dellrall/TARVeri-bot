@@ -32,9 +32,7 @@ def print_banner():
 
 
 async def main():
-    parser = argparse.ArgumentParser(
-        description="Test TARVeri primary (SMTP2GO) and fallback email delivery."
-    )
+    parser = argparse.ArgumentParser(description="Test TARVeri primary (SMTP2GO) and fallback email delivery.")
     parser.add_argument(
         "recipient",
         nargs="?",
@@ -85,7 +83,9 @@ async def main():
     print(f"   TLS Enabled       : {settings.smtp_use_tls}")
 
     if settings.smtp_fallback_host:
-        print(f"🔁 Fallback Relay    : {settings.smtp_fallback_host}:{settings.smtp_fallback_port} (User: {settings.smtp_fallback_user or '<None>'})")
+        print(
+            f"🔁 Fallback Relay    : {settings.smtp_fallback_host}:{settings.smtp_fallback_port} (User: {settings.smtp_fallback_user or '<None>'})"
+        )
         fb_from = settings.smtp_fallback_from_email or settings.smtp_from_email
         fb_name = settings.smtp_fallback_from_name or settings.smtp_from_name
         print(f"   Fallback From     : {fb_name} <{fb_from}>")

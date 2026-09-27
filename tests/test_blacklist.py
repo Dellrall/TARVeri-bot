@@ -405,4 +405,3 @@ async def test_blacklist_member_join_alert(in_memory_db, secret_key):
     embed = log_channel.send.call_args[1]["embed"]
     assert "Blacklisted User Joined" in embed.title
     assert "Server raider" in [f.value for f in embed.fields if f.name == "📝 Reason"][0]
-

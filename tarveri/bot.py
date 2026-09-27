@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+from typing import Any
 
 import aiohttp
 import discord
@@ -201,9 +202,7 @@ class TARVeriBot(commands.Bot):
         self.add_view(MassRevocationApprovalView(self.service))
 
         # Launch non-blocking background command sync so bot connects to gateway immediately
-        self._cmd_sync_task = asyncio.create_task(
-            self._sync_commands_background(), name="tarveri_cmd_sync"
-        )
+        self._cmd_sync_task = asyncio.create_task(self._sync_commands_background(), name="tarveri_cmd_sync")
         logger.info("Database connected, cogs loaded, and persistent views registered.")
 
         if self.update_checker:
@@ -255,9 +254,7 @@ class TARVeriBot(commands.Bot):
                 "STARTUP",
                 f"Logged in as {self.user} (ID: {self.user.id}) | Connected to {len(self.guilds)} server(s): {guild_names} | Total verified students: {total_verified}",
             )
-            logger.info(
-                f"TARVeri ready: Logged in as {self.user} (ID: {self.user.id}) | Servers: {len(self.guilds)}"
-            )
+            logger.info(f"TARVeri ready: Logged in as {self.user} (ID: {self.user.id}) | Servers: {len(self.guilds)}")
 
             # Run startup diagnostics and self-healing across connected guilds
             async def _startup_self_healing() -> None:
@@ -276,9 +273,7 @@ class TARVeriBot(commands.Bot):
                             warnings = self.service.diagnose_guild_permissions(guild)
                             for w in warnings:
                                 logger.warning(f"[{guild.name}] Diagnostic Warning: {w}")
-                                await self.db.log(
-                                    "WARNING", "HIERARCHY_DIAGNOSTIC", f"[{guild.name}] {w}", guild=guild
-                                )
+                                await self.db.log("WARNING", "HIERARCHY_DIAGNOSTIC", f"[{guild.name}] {w}", guild=guild)
 
                         # 4. Reconcile verified member roles and graduated alumni roles
                         if self.service:
@@ -389,7 +384,9 @@ async def run_bot(settings: Settings | None = None) -> None:
                 sig_name = str(sig)
 
             if sig_name == "SIGPWR":
-                logger.critical("⚡ Power failure / outage signal (SIGPWR) received. Flushing SQLite WAL and shutting down gracefully...")
+                logger.critical(
+                    "⚡ Power failure / outage signal (SIGPWR) received. Flushing SQLite WAL and shutting down gracefully..."
+                )
                 if bot.outage_service:
                     bot.outage_service.on_power_signal(sig_name)
             else:

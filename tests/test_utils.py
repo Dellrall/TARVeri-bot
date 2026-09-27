@@ -57,9 +57,7 @@ async def test_delete_after_delay_not_found_handled():
 async def test_delete_after_delay_forbidden_handled():
     # Bot lacks manage_messages permission
     interaction = MagicMock(spec=discord.Interaction)
-    interaction.delete_original_response = AsyncMock(
-        side_effect=discord.Forbidden(MagicMock(), "Missing Permissions")
-    )
+    interaction.delete_original_response = AsyncMock(side_effect=discord.Forbidden(MagicMock(), "Missing Permissions"))
 
     # Should not raise exception
     await delete_after_delay(interaction, delay=0.01)
@@ -119,6 +117,8 @@ def test_parse_db_timestamp():
     # None and invalid inputs
     assert parse_db_timestamp(None) is None
     assert parse_db_timestamp("") is None
+
+
 def test_parse_ticket_seq():
     # Integer inputs
     assert parse_ticket_seq(1) == 1
@@ -205,8 +205,3 @@ async def test_async_circuit_breaker_lifecycle():
     assert res2 == "success"
     assert cb.current_state == "closed"
     assert cb.fail_count == 0
-
-
-
-
-

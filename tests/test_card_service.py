@@ -20,7 +20,9 @@ async def test_card_data_generation_verified_student(tmp_path):
         service = CardService(db=db, admin_role_name="TARVeri Admin")
 
         user_id = 123456789
-        await db.record_verification(user_id, "abc123hash999", "M", campus_code="W", level_code="D")  # M -> FOCS, W -> KL Main Campus, D -> Diploma
+        await db.record_verification(
+            user_id, "abc123hash999", "M", campus_code="W", level_code="D"
+        )  # M -> FOCS, W -> KL Main Campus, D -> Diploma
 
         guild = MagicMock(spec=discord.Guild)
         guild.id = 998877

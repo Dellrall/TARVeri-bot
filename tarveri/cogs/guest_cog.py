@@ -29,7 +29,9 @@ from tarveri.utils import format_ticket_seq, schedule_ttl_delete
 logger = logging.getLogger("tarveri")
 
 
-def get_admin_role_or_fallback(guild: discord.Guild, configured_role_name: str = "TARVeri Admin") -> discord.Role | None:
+def get_admin_role_or_fallback(
+    guild: discord.Guild, configured_role_name: str = "TARVeri Admin"
+) -> discord.Role | None:
     """
     Intelligently discovers the server's administrator/moderator role in priority order:
     1. Configured admin role name (e.g. 'TARVeri Admin' or custom setting)
@@ -65,14 +67,18 @@ def get_admin_role_or_fallback(guild: discord.Guild, configured_role_name: str =
         for r in roles:
             if r.name.lower() == alias:
                 perms = getattr(r, "permissions", None)
-                if perms and (
-                    getattr(perms, "administrator", False)
-                    or getattr(perms, "manage_guild", False)
-                    or getattr(perms, "manage_roles", False)
-                    or getattr(perms, "moderate_members", False)
-                    or getattr(perms, "kick_members", False)
-                    or getattr(perms, "ban_members", False)
-                ) or alias in ("tarveri admin", "server admin", "admin", "administrator"):
+                if (
+                    perms
+                    and (
+                        getattr(perms, "administrator", False)
+                        or getattr(perms, "manage_guild", False)
+                        or getattr(perms, "manage_roles", False)
+                        or getattr(perms, "moderate_members", False)
+                        or getattr(perms, "kick_members", False)
+                        or getattr(perms, "ban_members", False)
+                    )
+                    or alias in ("tarveri admin", "server admin", "admin", "administrator")
+                ):
                     return r
 
     for r in reversed(roles):
@@ -83,7 +89,6 @@ def get_admin_role_or_fallback(guild: discord.Guild, configured_role_name: str =
             return r
 
     return None
-
 
 
 def get_admin_role_mention(guild: discord.Guild, admin_role_name: str = "TARVeri Admin") -> str:
@@ -106,7 +111,6 @@ def is_admin_or_has_role(interaction: discord.Interaction, admin_role_name: str)
     if admin_role and admin_role in interaction.user.roles:
         return True
     return any(r.name.lower() == admin_role_name.lower() for r in interaction.user.roles)
-
 
 
 class StudentVerificationModal(discord.ui.Modal, title="🎓 TARUMT Student Verification"):
@@ -143,12 +147,10 @@ class StudentVerificationModal(discord.ui.Modal, title="🎓 TARUMT Student Veri
         self.email_service = email_service or getattr(verification_service, "email_service", None)
         self.require_email = require_email
         current_yy = str(datetime.now().year)[-2:]
-        self.student_id.placeholder = f"e.g. {current_yy}WMD09867 or {int(current_yy)-1:02d}PMR12345"
+        self.student_id.placeholder = f"e.g. {current_yy}WMD09867 or {int(current_yy) - 1:02d}PMR12345"
         self.card_expiry.placeholder = f"e.g. 10/{(int(current_yy) + 2) % 100:02d} (Optional)"
 
-        is_global_email_active = bool(
-            self.email_service and getattr(self.email_service, "is_enabled", False) is True
-        )
+        is_global_email_active = bool(self.email_service and getattr(self.email_service, "is_enabled", False) is True)
         if is_global_email_active and self.require_email:
             self.student_email.required = True
             self.student_email.placeholder = f"e.g. name-wm{current_yy}@student.tarc.edu.my (Required)"
@@ -208,12 +210,9 @@ class StudentVerificationModal(discord.ui.Modal, title="🎓 TARUMT Student Veri
         if not guild_email_required and guild_id and db:
             guild_email_required = await db.is_guild_email_verification_enabled(guild_id)
 
-        is_email_active = bool(
-            self.email_service and getattr(self.email_service, "is_enabled", False) is True
-        )
+        is_email_active = bool(self.email_service and getattr(self.email_service, "is_enabled", False) is True)
         restrict_smtp = bool(
-            self.email_service
-            and getattr(self.email_service.settings, "email_restrict_smtp_usage", True) is True
+            self.email_service and getattr(self.email_service.settings, "email_restrict_smtp_usage", True) is True
         )
 
         # 1. If email is mandated for this guild, ensure student provided an email
@@ -519,7 +518,9 @@ class CloseTicketModal(discord.ui.Modal, title="🔒 Close Ticket (Without Kicki
             updated_ticket = await self.guest_service.db.get_guest_ticket_by_id(self.ticket["ticket_id"])
             applicant_member = interaction.guild.get_member(self.ticket["applicant_id"])
             if updated_ticket:
-                embed = build_review_embed(updated_ticket, interaction.guild, applicant_member, status_override="CLOSED")
+                embed = build_review_embed(
+                    updated_ticket, interaction.guild, applicant_member, status_override="CLOSED"
+                )
                 disabled_view = discord.ui.View()
                 try:
                     await self.message.edit(embed=embed, view=disabled_view)
@@ -530,7 +531,7 @@ class CloseTicketModal(discord.ui.Modal, title="🔒 Close Ticket (Without Kicki
 
             if isinstance(interaction.channel, discord.Thread):
                 reason_note = (
-                    f"\n> **Reason:** *\"{self.reason.value.strip()}\"*"
+                    f'\n> **Reason:** *"{self.reason.value.strip()}"*'
                     if self.reason.value and self.reason.value.strip()
                     else ""
                 )
@@ -580,7 +581,9 @@ class VouchModal(discord.ui.Modal, title="🤝 Confirm Referral Vouch"):
             except discord.HTTPException as exc:
                 logger.debug("Failed to edit review message after vouch: %s", exc)
 
-        await interaction.followup.send("✅ Your vouch statement has been recorded! Waiting for Admin team approval.", ephemeral=True)
+        await interaction.followup.send(
+            "✅ Your vouch statement has been recorded! Waiting for Admin team approval.", ephemeral=True
+        )
         schedule_ttl_delete(interaction, delay=60.0)
         if isinstance(interaction.channel, discord.Thread):
             admin_mention = (
@@ -635,7 +638,7 @@ def build_review_embed(
         if ticket.get("vouch_note"):
             voucher_id = ticket.get("vouched_by_id") or ticket.get("referrer_id")
             voucher_str = f"<@{voucher_id}>" if voucher_id else "Voucher"
-            vouch_status = f"✅ Confirmed by {voucher_str}: *\"{ticket['vouch_note']}\"*"
+            vouch_status = f'✅ Confirmed by {voucher_str}: *"{ticket["vouch_note"]}"*'
             if ticket.get("vouched_at"):
                 vouch_status += f" `({ticket['vouched_at']})`"
         else:
@@ -645,17 +648,17 @@ def build_review_embed(
         if status == "APPROVED":
             admin_id = ticket.get("closed_by_admin_id")
             admin_str = f" by <@{admin_id}>" if admin_id else " by Admin"
-            reason_str = f": *\"{ticket['close_reason']}\"*" if ticket.get("close_reason") else ""
+            reason_str = f': *"{ticket["close_reason"]}"*' if ticket.get("close_reason") else ""
             admin_status = f"✅ Approved{admin_str}{reason_str}"
         elif status in ("CLOSED", "DISMISSED", "CANCELLED"):
             admin_id = ticket.get("closed_by_admin_id")
             admin_str = f" by <@{admin_id}>" if admin_id else ""
-            reason_str = f": *\"{ticket.get('close_reason')}\"*" if ticket.get("close_reason") else ""
+            reason_str = f': *"{ticket.get("close_reason")}"*' if ticket.get("close_reason") else ""
             admin_status = f"🔒 Closed / Dismissed{admin_str}{reason_str} *(No kicking or role assigned)*"
         elif status in ("REJECTED", "BANNED", "LEFT_SERVER"):
             admin_id = ticket.get("closed_by_admin_id")
             admin_str = f" by <@{admin_id}>" if admin_id else ""
-            reason_str = f": *\"{ticket.get('close_reason')}\"*" if ticket.get("close_reason") else ""
+            reason_str = f': *"{ticket.get("close_reason")}"*' if ticket.get("close_reason") else ""
             admin_status = f"🛑 {status.capitalize()}{admin_str}{reason_str}"
         else:
             admin_status = "⏳ Pending Admin final approval"
@@ -666,18 +669,24 @@ def build_review_embed(
         if status == "APPROVED":
             admin_id = ticket.get("closed_by_admin_id")
             admin_str = f" by <@{admin_id}>" if admin_id else ""
-            reason_str = f": *\"{ticket['close_reason']}\"*" if ticket.get("close_reason") else ""
+            reason_str = f': *"{ticket["close_reason"]}"*' if ticket.get("close_reason") else ""
             embed.add_field(name="Staff Verdict", value=f"✅ Approved{admin_str}{reason_str}", inline=False)
         elif status in ("CLOSED", "DISMISSED", "CANCELLED"):
             admin_id = ticket.get("closed_by_admin_id")
             admin_str = f" by <@{admin_id}>" if admin_id else ""
-            reason_str = f": *\"{ticket.get('close_reason')}\"*" if ticket.get("close_reason") else ""
-            embed.add_field(name="Staff Verdict", value=f"🔒 Closed / Dismissed{admin_str}{reason_str} *(No kicking or role assigned)*", inline=False)
+            reason_str = f': *"{ticket.get("close_reason")}"*' if ticket.get("close_reason") else ""
+            embed.add_field(
+                name="Staff Verdict",
+                value=f"🔒 Closed / Dismissed{admin_str}{reason_str} *(No kicking or role assigned)*",
+                inline=False,
+            )
         elif status != "OPEN":
             admin_id = ticket.get("closed_by_admin_id")
             admin_str = f" by <@{admin_id}>" if admin_id else ""
-            reason_str = f": *\"{ticket.get('close_reason')}\"*" if ticket.get("close_reason") else ""
-            embed.add_field(name="Staff Verdict", value=f"🛑 {status.capitalize()}{admin_str}{reason_str}", inline=False)
+            reason_str = f': *"{ticket.get("close_reason")}"*' if ticket.get("close_reason") else ""
+            embed.add_field(
+                name="Staff Verdict", value=f"🛑 {status.capitalize()}{admin_str}{reason_str}", inline=False
+            )
 
     embed.set_footer(text=f"Server: {guild.name} • Created at {ticket.get('created_at', 'N/A')}")
     return embed
@@ -693,7 +702,9 @@ def build_gateway_panel_embed(
     If require_email is True, highlights that institutional email OTP (@student.tarc.edu.my)
     is required specifically for TARUMT Student verification (Guests & referrals do not need email).
     """
-    welcome_text = f"Welcome {member_mention} to **{guild_name}**!" if member_mention else f"Welcome to **{guild_name}**!"
+    welcome_text = (
+        f"Welcome {member_mention} to **{guild_name}**!" if member_mention else f"Welcome to **{guild_name}**!"
+    )
     if require_email:
         embed = discord.Embed(
             title="🎓 TARUMT Verification Gateway",
@@ -781,7 +792,9 @@ class GuestReviewThreadView(discord.ui.View):
     )
     async def approve_btn(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not is_admin_or_has_role(interaction, self.guest_service.admin_role_name):
-            await interaction.response.send_message("❌ Only server administrators can approve guest requests.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ Only server administrators can approve guest requests.", ephemeral=True
+            )
             schedule_ttl_delete(interaction, delay=60.0)
             return
 
@@ -812,7 +825,9 @@ class GuestReviewThreadView(discord.ui.View):
             updated_ticket = await self.guest_service.db.get_guest_ticket_by_id(ticket["ticket_id"])
             applicant_member = interaction.guild.get_member(ticket["applicant_id"])
             if updated_ticket:
-                embed = build_review_embed(updated_ticket, interaction.guild, applicant_member, status_override="APPROVED")
+                embed = build_review_embed(
+                    updated_ticket, interaction.guild, applicant_member, status_override="APPROVED"
+                )
                 disabled_view = discord.ui.View()
                 try:
                     await interaction.message.edit(embed=embed, view=disabled_view)
@@ -842,7 +857,9 @@ class GuestReviewThreadView(discord.ui.View):
     )
     async def reject_btn(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not is_admin_or_has_role(interaction, self.guest_service.admin_role_name):
-            await interaction.response.send_message("❌ Only server administrators can veto/reject guest requests.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ Only server administrators can veto/reject guest requests.", ephemeral=True
+            )
             schedule_ttl_delete(interaction, delay=60.0)
             return
 
@@ -932,7 +949,9 @@ class GuestCog(commands.Cog, name="Guest"):
 
     referral = app_commands.Group(name="referral", description="Commands to generate and manage guest referral codes")
 
-    @referral.command(name="generate", description="Generate a guest referral code for a friend (Verified Students only).")
+    @referral.command(
+        name="generate", description="Generate a guest referral code for a friend (Verified Students only)."
+    )
     @app_commands.describe(ttl_hours="How many hours until the code expires (default: 48, max: 168)")
     async def referral_generate(self, interaction: discord.Interaction, ttl_hours: int = 48) -> None:
         """Generates a guest referral code."""
@@ -1010,7 +1029,9 @@ class GuestCog(commands.Cog, name="Guest"):
             color=discord.Color.blue(),
         )
         for item in codes:
-            status_emoji = "🟢" if item["status"] == "ACTIVE" else ("🟡" if item["status"] == "PENDING_APPROVAL" else "⚪")
+            status_emoji = (
+                "🟢" if item["status"] == "ACTIVE" else ("🟡" if item["status"] == "PENDING_APPROVAL" else "⚪")
+            )
             used_str = f" • Used by <@{item['used_by_discord_id']}>" if item.get("used_by_discord_id") else ""
             embed.add_field(
                 name=f"`{item['code']}` {status_emoji} {item['status']}",
@@ -1032,7 +1053,9 @@ class GuestCog(commands.Cog, name="Guest"):
     ) -> None:
         """Posts the persistent verification gateway panel."""
         if not is_admin_or_has_role(interaction, self.guest_service.admin_role_name):
-            await interaction.response.send_message("❌ You do not have permission to use this command.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this command.", ephemeral=True
+            )
             schedule_ttl_delete(interaction, delay=60.0)
             return
 
@@ -1046,9 +1069,7 @@ class GuestCog(commands.Cog, name="Guest"):
 
         db = getattr(self.verification_service, "db", None) or self.db
         email_required = (
-            await db.is_guild_email_verification_enabled(interaction.guild.id)
-            if interaction.guild and db
-            else False
+            await db.is_guild_email_verification_enabled(interaction.guild.id) if interaction.guild and db else False
         )
         guild_name = interaction.guild.name if interaction.guild else "the Server"
         embed = build_gateway_panel_embed(guild_name=guild_name, require_email=email_required)

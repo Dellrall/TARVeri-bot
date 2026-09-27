@@ -383,7 +383,3 @@ async def test_guest_review_thread_close_button_flow(tmp_path):
     assert ticket_after["close_reason"] == "Duplicate ticket / Reconsidering later"
 
     await db.close()
-
-
-
-
