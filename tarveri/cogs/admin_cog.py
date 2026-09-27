@@ -38,6 +38,7 @@ from tarveri.services.log_service import (
     list_log_archives,
 )
 from tarveri.services.update_checker import UpdateCheckerService
+from tarveri.services.uptime_service import UptimeService
 from tarveri.services.verification_service import VerificationService
 from tarveri.utils import format_ticket_seq, parse_ticket_seq, schedule_ttl_delete
 
@@ -79,6 +80,7 @@ class AdminCog(commands.Cog, name="Admin"):
         update_checker: UpdateCheckerService | None = None,
         log_rotator: LogRotationService | None = None,
         guest_service: GuestService | None = None,
+        uptime_service: UptimeService | None = None,
     ):
         self.bot = bot
         self.db = db
@@ -88,6 +90,7 @@ class AdminCog(commands.Cog, name="Admin"):
         self.update_checker = update_checker
         self.log_rotator = log_rotator
         self.guest_service = guest_service
+        self.uptime_service = uptime_service
 
     def _check_admin(self, interaction: discord.Interaction) -> bool:
         return is_admin_or_has_role(interaction, self.admin_role_name)
@@ -113,6 +116,25 @@ class AdminCog(commands.Cog, name="Admin"):
         await interaction.response.defer(ephemeral=True)
         view = AdminDashboardView(cog=self, admin_user=interaction.user, initial_category="overview")
         embed = await view.build_overview_embed(interaction.guild)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+    @admin_group.command(
+        name="uptime",
+        description="View continuous bot uptime, downtime detection history, and SLA availability scores.",
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def uptime(self, interaction: discord.Interaction) -> None:
+        """Launches the Uptime and SLA Performance dashboard."""
+        if not self._check_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this command.", ephemeral=True
+            )
+            schedule_ttl_delete(interaction, delay=60.0)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        view = AdminDashboardView(cog=self, admin_user=interaction.user, initial_category="uptime")
+        embed = await view.build_uptime_embed(interaction.guild)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     @admin_group.command(

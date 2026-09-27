@@ -5,6 +5,7 @@ Network and Power Outage Detection and Graceful Shutdown Watchdog Service.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -146,6 +147,20 @@ class OutageService:
                 )
             else:
                 logger.debug(f"Discord gateway reconnected/resumed after {downtime:.2f}s (normal blip).")
+
+            if downtime >= 5.0 and hasattr(self.bot, "uptime_service"):
+                uptime_svc = getattr(self.bot, "uptime_service", None)
+                if uptime_svc and hasattr(uptime_svc, "record_gateway_outage"):
+                    started_str = self._disconnect_walltime or now_formatted()
+                    ended_str = now_formatted()
+                    coro = uptime_svc.record_gateway_outage(
+                        duration_seconds=downtime,
+                        started_at=started_str,
+                        ended_at=ended_str,
+                        reason="Discord gateway disconnection / network outage",
+                    )
+                    if inspect.isawaitable(coro):
+                        asyncio.create_task(coro, name="tarveri_record_gateway_outage")
 
             self._disconnected_at = None
             self._disconnect_walltime = None

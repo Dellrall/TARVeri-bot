@@ -37,6 +37,7 @@ from tarveri.services.outage_service import OutageService
 from tarveri.services.random_tag_service import RandomTagService
 from tarveri.services.storage_guard_service import StorageGuardService
 from tarveri.services.update_checker import UpdateCheckerService
+from tarveri.services.uptime_service import UptimeService
 from tarveri.services.verification_service import VerificationService
 
 logger = logging.getLogger("tarveri")
@@ -133,6 +134,7 @@ class TARVeriBot(commands.Bot):
             else None
         )
         self.random_tag_service = RandomTagService(bot=self, db=self.db)
+        self.uptime_service = UptimeService(bot=self, db=self.db)
         self._is_ready_logged = False
         self._cmd_sync_task: asyncio.Task[None] | None = None
 
@@ -147,6 +149,7 @@ class TARVeriBot(commands.Bot):
     async def setup_hook(self) -> None:
         """Initializes database and registers cogs and persistent views during bot startup."""
         await self.db.connect()
+        await self.uptime_service.start()
 
         # Add cogs
         await self.add_cog(
@@ -170,6 +173,7 @@ class TARVeriBot(commands.Bot):
                 update_checker=self.update_checker,
                 log_rotator=self.log_rotator,
                 guest_service=self.guest_service,
+                uptime_service=self.uptime_service,
             )
         )
         await self.add_cog(
@@ -315,6 +319,9 @@ class TARVeriBot(commands.Bot):
 
         if self.random_tag_service:
             self.random_tag_service.stop()
+
+        if self.uptime_service:
+            await self.uptime_service.stop()
 
         try:
             if self.db.is_connected:

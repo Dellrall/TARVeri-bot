@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import logging
 import re
 from typing import TYPE_CHECKING
@@ -19,6 +20,7 @@ from tarveri.services.log_service import (
     list_log_archives,
 )
 from tarveri.services.update_checker import UpdateCheckerService
+from tarveri.services.uptime_service import format_duration_seconds
 from tarveri.utils import format_ticket_seq, schedule_ttl_delete
 
 if TYPE_CHECKING:
@@ -387,6 +389,13 @@ class AdminCategorySelect(ui.Select):
                 emoji="🎲",
                 default=dashboard_view.current_category == "randomtag",
             ),
+            discord.SelectOption(
+                label="Uptime & SLA Tracking",
+                value="uptime",
+                description="View continuous uptime, downtime history, and SLA availability scores.",
+                emoji="⏱️",
+                default=dashboard_view.current_category == "uptime",
+            ),
         ]
         super().__init__(
             placeholder="Select Control Center Category...",
@@ -556,6 +565,11 @@ class AdminDashboardView(ui.View):
             btn_mode.callback = self._on_randomtag_mode_clicked
             self.add_item(btn_mode)
 
+        elif self.current_category == "uptime":
+            btn_refresh_uptime = ui.Button(label="Refresh SLA Metrics", style=discord.ButtonStyle.primary, emoji="🔄")
+            btn_refresh_uptime.callback = self._on_refresh_uptime_clicked
+            self.add_item(btn_refresh_uptime)
+
     async def refresh_view(self, interaction: discord.Interaction) -> None:
         self._rebuild_components()
         embed = await self.build_current_embed(interaction.guild)
@@ -588,6 +602,8 @@ class AdminDashboardView(ui.View):
             return await self.build_updates_embed(guild)
         elif self.current_category == "randomtag":
             return await self.build_randomtag_embed(guild)
+        elif self.current_category == "uptime":
+            return await self.build_uptime_embed(guild)
         return await self.build_overview_embed(guild)
 
     # --- Embed Builders ---
@@ -622,6 +638,18 @@ class AdminDashboardView(ui.View):
                 else "⚪ **Optional (Default: Opted Out)**"
             )
             embed.add_field(name="📧 Server Email Policy", value=opt_status, inline=True)
+
+        uptime_service = getattr(self.cog, "uptime_service", None) or getattr(self.cog.bot, "uptime_service", None)
+        if uptime_service and hasattr(uptime_service, "get_sla_metrics"):
+            res = uptime_service.get_sla_metrics()
+            sla_metrics = await res if inspect.isawaitable(res) else res
+            if isinstance(sla_metrics, dict) and "sla_24h" in sla_metrics and isinstance(sla_metrics["sla_24h"], dict):
+                sla_24h_val = sla_metrics["sla_24h"].get("sla_percent", 100.0)
+                embed.add_field(
+                    name="⏱️ Uptime & 24h SLA",
+                    value=f"**{sla_metrics.get('current_uptime_str', 'Online')}** • **{sla_24h_val:.2f}%** ({sla_metrics['sla_24h'].get('grade', 'Healthy')})",
+                    inline=True,
+                )
 
         if faculty_counts:
             breakdown_lines = []
@@ -1385,4 +1413,104 @@ class AdminDashboardView(ui.View):
         new_mode = "round_robin" if config["word_rotation_mode"] == "random" else "random"
         await random_service.update_config(interaction.guild.id, word_rotation_mode=new_mode)
         embed = await self.build_randomtag_embed(interaction.guild)
+        await self.update_message(interaction, embed=embed)
+
+    async def build_uptime_embed(self, guild: discord.Guild | None) -> discord.Embed:
+        """Constructs a comprehensive system uptime, SLA metrics, and downtime history embed."""
+        uptime_service = getattr(self.cog, "uptime_service", None) or getattr(self.cog.bot, "uptime_service", None)
+        if not uptime_service or not hasattr(uptime_service, "get_sla_metrics"):
+            return discord.Embed(
+                title="⏱️ Uptime & SLA Tracking",
+                description="Uptime monitoring service is not initialized.",
+                color=discord.Color.red(),
+            )
+
+        res = uptime_service.get_sla_metrics()
+        metrics = await res if inspect.isawaitable(res) else res
+        if not isinstance(metrics, dict) or "sla_24h" not in metrics:
+            return discord.Embed(
+                title="⏱️ Uptime & SLA Tracking",
+                description="Uptime metrics currently unavailable.",
+                color=discord.Color.red(),
+            )
+
+        sla_24h = metrics["sla_24h"]
+        sla_7d = metrics["sla_7d"]
+        sla_30d = metrics["sla_30d"]
+
+        if sla_24h["sla_percent"] >= 99.9:
+            color = discord.Color.green()
+        elif sla_24h["sla_percent"] >= 95.0:
+            color = discord.Color.gold()
+        else:
+            color = discord.Color.red()
+
+        embed = discord.Embed(
+            title="⏱️ TARVeri System Uptime & SLA Performance",
+            description="Continuous availability telemetry, downtime tracking, and SLA performance metrics.",
+            color=color,
+        )
+
+        gateway_ping = f"{round(self.cog.bot.latency * 1000)}ms" if self.cog.bot.latency else "N/A"
+        started_ts = metrics.get("started_at_timestamp")
+        started_str = f"<t:{started_ts}:F> (<t:{started_ts}:R>)" if started_ts else metrics.get("started_at", "N/A")
+
+        session_info = (
+            f"• **Continuous Uptime:** **{metrics['current_uptime_str']}**\n"
+            f"• **Session Started:** {started_str}\n"
+            f"• **Session ID:** `{metrics['session_id']}`\n"
+            f"• **Gateway Latency:** `{gateway_ping}`"
+        )
+        embed.add_field(name="🟢 Active Session Health", value=session_info, inline=False)
+
+        sla_summary = (
+            f"• **24-Hour SLA:** **`{sla_24h['sla_percent']:.3f}%`** — {sla_24h['grade']}\n"
+            f"  └ Downtime: `{sla_24h['downtime_str']}` ({sla_24h['incidents']} incident(s))\n"
+            f"• **7-Day SLA:** **`{sla_7d['sla_percent']:.3f}%`** — {sla_7d['grade']}\n"
+            f"  └ Downtime: `{sla_7d['downtime_str']}` ({sla_7d['incidents']} incident(s))\n"
+            f"• **30-Day SLA:** **`{sla_30d['sla_percent']:.3f}%`** — {sla_30d['grade']}\n"
+            f"  └ Downtime: `{sla_30d['downtime_str']}` ({sla_30d['incidents']} incident(s))"
+        )
+        embed.add_field(name="📊 SLA Availability Scores", value=sla_summary, inline=False)
+
+        recent_incidents = metrics.get("recent_incidents", [])
+        if recent_incidents:
+            incident_lines = []
+            for inc in recent_incidents[:5]:
+                dt_type = inc["downtime_type"].replace("_", " ").title()
+                dur_str = format_duration_seconds(inc["duration_seconds"])
+                reason = inc.get("reason") or "Service restart / maintenance"
+                incident_lines.append(f"• **{inc['started_at']}** — `{dur_str}` ({dt_type})\n  └ *{reason}*")
+            embed.add_field(
+                name="📉 Recent Downtime Incidents (Past 30 Days)",
+                value="\n".join(incident_lines),
+                inline=False,
+            )
+        else:
+            embed.add_field(
+                name="📉 Recent Downtime Incidents (Past 30 Days)",
+                value="*No downtime incidents recorded in the last 30 days. Perfect availability!*",
+                inline=False,
+            )
+
+        outage_service = getattr(self.cog.bot, "outage_service", None)
+        outage_status = "Active (300s emergency limit)" if outage_service and outage_service.is_running else "Standby"
+        embed.add_field(
+            name="🛡️ High Availability & Watchdogs",
+            value=(
+                f"• **Heartbeat Daemon:** `Active (Every {uptime_service.heartbeat_interval_seconds}s)`\n"
+                f"• **Outage Watchdog:** `{outage_status}`\n"
+                f"• **Database Engine:** `SQLite WAL Checkpointed`"
+            ),
+            inline=False,
+        )
+
+        embed.set_footer(text="TARVeri High Availability SLA Engine • Click 'Refresh SLA Metrics' to update")
+        return embed
+
+    async def _on_refresh_uptime_clicked(self, interaction: discord.Interaction) -> None:
+        """Refreshes the live SLA metrics and latency."""
+        if not interaction.response.is_done():
+            await interaction.response.defer()
+        embed = await self.build_uptime_embed(interaction.guild)
         await self.update_message(interaction, embed=embed)

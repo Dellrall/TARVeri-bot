@@ -397,6 +397,25 @@ class Database:
                 detected_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS service_uptime_heartbeat (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                session_id TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                last_heartbeat_at TEXT NOT NULL,
+                clean_shutdown_at TEXT,
+                system_version TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS service_downtime_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                downtime_type TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                ended_at TEXT NOT NULL,
+                duration_seconds REAL NOT NULL,
+                reason TEXT,
+                recorded_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_log(event_type);
             CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
             CREATE INDEX IF NOT EXISTS idx_audit_user_id ON audit_log(user_id);
@@ -412,6 +431,8 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_blacklist_guild ON guild_blacklists(guild_id);
             CREATE INDEX IF NOT EXISTS idx_pending_mass_actions_guild ON pending_mass_actions(guild_id, status);
             CREATE INDEX IF NOT EXISTS idx_bounced_emails_hash ON bounced_emails(email_hash);
+            CREATE INDEX IF NOT EXISTS idx_downtime_started_at ON service_downtime_events(started_at);
+            CREATE INDEX IF NOT EXISTS idx_downtime_ended_at ON service_downtime_events(ended_at);
             """
         )
 
@@ -2521,3 +2542,139 @@ class Database:
                 (email_hash,),
             )
             return cursor.rowcount > 0
+
+    # ------------------------------------------------------------------
+    # Uptime Tracking & Downtime Analytics
+    # ------------------------------------------------------------------
+
+    async def get_uptime_heartbeat(self) -> dict[str, Any] | None:
+        """Retrieves the latest service heartbeat and session status."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+        cursor = await self._conn.execute(
+            "SELECT session_id, started_at, last_heartbeat_at, clean_shutdown_at, system_version FROM service_uptime_heartbeat WHERE id = 1;"
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "session_id": row[0],
+            "started_at": row[1],
+            "last_heartbeat_at": row[2],
+            "clean_shutdown_at": row[3],
+            "system_version": row[4],
+        }
+
+    async def upsert_uptime_heartbeat(
+        self,
+        session_id: str,
+        started_at: str,
+        last_heartbeat_at: str,
+        system_version: str | None = None,
+        clean_shutdown_at: str | None = None,
+    ) -> None:
+        """Initializes or updates the single service uptime heartbeat row."""
+        async with self.transaction() as conn:
+            await conn.execute(
+                """
+                INSERT INTO service_uptime_heartbeat (id, session_id, started_at, last_heartbeat_at, clean_shutdown_at, system_version)
+                VALUES (1, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    session_id = excluded.session_id,
+                    started_at = excluded.started_at,
+                    last_heartbeat_at = excluded.last_heartbeat_at,
+                    clean_shutdown_at = excluded.clean_shutdown_at,
+                    system_version = excluded.system_version;
+                """,
+                (session_id, started_at, last_heartbeat_at, clean_shutdown_at, system_version),
+            )
+
+    async def update_uptime_heartbeat_timestamp(self, last_heartbeat_at: str) -> None:
+        """Updates the periodic heartbeat timestamp for the active session."""
+        async with self.transaction() as conn:
+            await conn.execute(
+                "UPDATE service_uptime_heartbeat SET last_heartbeat_at = ? WHERE id = 1;",
+                (last_heartbeat_at,),
+            )
+
+    async def record_clean_shutdown(self, clean_shutdown_at: str) -> None:
+        """Marks the current heartbeat record with a clean shutdown timestamp."""
+        async with self.transaction() as conn:
+            await conn.execute(
+                "UPDATE service_uptime_heartbeat SET clean_shutdown_at = ?, last_heartbeat_at = ? WHERE id = 1;",
+                (clean_shutdown_at, clean_shutdown_at),
+            )
+
+    async def record_downtime_event(
+        self,
+        downtime_type: str,
+        started_at: str,
+        ended_at: str,
+        duration_seconds: float,
+        reason: str | None = None,
+    ) -> int:
+        """Records a detected downtime incident."""
+        now_ts = started_at
+        async with self.transaction() as conn:
+            cursor = await conn.execute(
+                """
+                INSERT INTO service_downtime_events (downtime_type, started_at, ended_at, duration_seconds, reason, recorded_at)
+                VALUES (?, ?, ?, ?, ?, ?);
+                """,
+                (downtime_type, started_at, ended_at, duration_seconds, reason, now_ts),
+            )
+            return cursor.lastrowid or 0
+
+    async def get_recent_downtime_events(self, limit: int = 10) -> list[dict[str, Any]]:
+        """Retrieves recently recorded downtime incidents."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+        cursor = await self._conn.execute(
+            """
+            SELECT id, downtime_type, started_at, ended_at, duration_seconds, reason, recorded_at
+            FROM service_downtime_events
+            ORDER BY id DESC
+            LIMIT ?;
+            """,
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+        return [
+            {
+                "id": r[0],
+                "downtime_type": r[1],
+                "started_at": r[2],
+                "ended_at": r[3],
+                "duration_seconds": r[4],
+                "reason": r[5],
+                "recorded_at": r[6],
+            }
+            for r in rows
+        ]
+
+    async def get_downtime_events_in_range(self, start_iso: str, end_iso: str) -> list[dict[str, Any]]:
+        """Retrieves all downtime events overlapping with the specified time range."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+        cursor = await self._conn.execute(
+            """
+            SELECT id, downtime_type, started_at, ended_at, duration_seconds, reason, recorded_at
+            FROM service_downtime_events
+            WHERE ended_at >= ? AND started_at <= ?
+            ORDER BY started_at ASC;
+            """,
+            (start_iso, end_iso),
+        )
+        rows = await cursor.fetchall()
+        return [
+            {
+                "id": r[0],
+                "downtime_type": r[1],
+                "started_at": r[2],
+                "ended_at": r[3],
+                "duration_seconds": r[4],
+                "reason": r[5],
+                "recorded_at": r[6],
+            }
+            for r in rows
+        ]
