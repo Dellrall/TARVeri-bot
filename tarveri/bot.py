@@ -8,6 +8,7 @@ import asyncio
 import logging
 import signal
 
+import aiohttp
 import discord
 from discord.ext import commands
 
@@ -351,10 +352,24 @@ async def run_bot(settings: Settings | None = None) -> None:
     if settings.sentry_dsn:
         try:
             import sentry_sdk
+
+            def _sentry_before_send(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] | None:
+                if "exc_info" in hint:
+                    exc_type, exc_value, _ = hint["exc_info"]
+                    if exc_value:
+                        err_str = str(exc_value)
+                        # Filter out expected discord.py shutdown race conditions
+                        if "_MissingSentinel" in err_str or "Connector is closed" in err_str:
+                            return None
+                        if exc_type is asyncio.CancelledError:
+                            return None
+                return event
+
             sentry_sdk.init(
                 dsn=settings.sentry_dsn,
                 traces_sample_rate=0.1,
                 profiles_sample_rate=0.1,
+                before_send=_sentry_before_send,
             )
             logger.info("🚨 Sentry real-time crash and error telemetry initialized.")
         except Exception as e:
@@ -393,5 +408,16 @@ async def run_bot(settings: Settings | None = None) -> None:
         except (NotImplementedError, RuntimeError) as exc:
             logger.debug("Signal handler registration skipped for %s: %s", sig, exc)
 
-    async with bot:
-        await bot.start(settings.bot_token)
+    try:
+        async with bot:
+            await bot.start(settings.bot_token)
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        logger.info("TARVeri process stopped cleanly.")
+    except (aiohttp.ClientConnectionError, AttributeError) as exc:
+        if "_MissingSentinel" in str(exc) or "Connector is closed" in str(exc) or stop_event.is_set():
+            logger.info(f"TARVeri shutdown connection cleanup completed ({exc}).")
+        else:
+            raise
+    except Exception as exc:
+        logger.critical(f"Unhandled exception during bot execution: {exc}", exc_info=True)
+        raise
