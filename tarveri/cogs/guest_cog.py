@@ -686,17 +686,19 @@ def build_review_embed(
 def build_gateway_panel_embed(
     guild_name: str = "the Server",
     require_email: bool = False,
+    member_mention: str | None = None,
 ) -> discord.Embed:
     """
     Builds the standardized verification gateway panel embed.
     If require_email is True, highlights that institutional email OTP (@student.tarc.edu.my)
     is required specifically for TARUMT Student verification (Guests & referrals do not need email).
     """
+    welcome_text = f"Welcome {member_mention} to **{guild_name}**!" if member_mention else f"Welcome to **{guild_name}**!"
     if require_email:
         embed = discord.Embed(
             title="🎓 TARUMT Verification Gateway",
             description=(
-                f"Welcome to **{guild_name}**!\n"
+                f"{welcome_text}\n"
                 "Choose an option below to gain access:\n\n"
                 "🎓 **TARUMT Student** — Enter Student ID & verify `@student.tarc.edu.my` OTP\n"
                 "🎟️ **Referral Code** — Enter an invite code from an existing student\n"
@@ -709,7 +711,7 @@ def build_gateway_panel_embed(
         embed = discord.Embed(
             title="🎓 TARUMT Verification Gateway",
             description=(
-                f"Welcome to **{guild_name}**!\n"
+                f"{welcome_text}\n"
                 "Choose an option below to gain access:\n\n"
                 "🎓 **TARUMT Student** — Enter Student ID to receive faculty roles\n"
                 "🎟️ **Referral Code** — Enter an invite code from an existing student\n"

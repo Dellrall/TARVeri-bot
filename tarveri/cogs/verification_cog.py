@@ -13,7 +13,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from tarveri.cogs.guest_cog import VerificationGatewayView
+from tarveri.cogs.guest_cog import VerificationGatewayView, build_gateway_panel_embed
 from tarveri.config import (
     FACULTY_ROLE_NAMES,
     GUEST_ROLE_PATTERN,
@@ -1813,17 +1813,11 @@ class VerificationCog(commands.Cog, name="Verification"):
                 # User is Fast Verified (Tier 1), but server mandates institutional email OTP (Tier 2).
                 welcome_channel = await self.get_welcome_or_verify_channel(member.guild)
                 if welcome_channel:
-                    welcome_embed = discord.Embed(
-                        title="📧 Institutional Email Verification Required",
-                        description=(
-                            f"Welcome {member.mention} to **{member.guild.name}**!\n\n"
-                            "You are currently verified with TARVeri, but this server mandates "
-                            "**institutional email OTP verification** (`@student.tarc.edu.my`) for student access.\n\n"
-                            "Please click **Verify TARUMT Student** below or run `/verify` to link your institutional email."
-                        ),
-                        color=discord.Color.gold(),
+                    welcome_embed = build_gateway_panel_embed(
+                        guild_name=member.guild.name,
+                        require_email=True,
+                        member_mention=member.mention,
                     )
-                    welcome_embed.set_footer(text="TARVeri Verification System • Tiered Trust")
                     view = (
                         VerificationGatewayView(self.service, self.guest_service)
                         if self.guest_service
@@ -1897,32 +1891,11 @@ class VerificationCog(commands.Cog, name="Verification"):
         welcome_channel = await self.get_welcome_or_verify_channel(member.guild)
         if welcome_channel:
             guild_email_required = await self.db.is_guild_email_verification_enabled(member.guild.id)
-            if guild_email_required:
-                welcome_embed = discord.Embed(
-                    title="🎓 TARUMT Verification Gateway",
-                    description=(
-                        f"Welcome {member.mention} to **{member.guild.name}**!\n"
-                        "Choose an option below to gain access:\n\n"
-                        "🎓 **TARUMT Student** — Enter Student ID & verify `@student.tarc.edu.my` OTP\n"
-                        "🎟️ **Referral Code** — Enter an invite code from an existing student\n"
-                        "🌐 **Guest / Speaker** — Apply for visitor access"
-                    ),
-                    color=discord.Color.blue(),
-                )
-                welcome_embed.set_footer(text="🔒 Student email OTP required for TARUMT access • Guests exempt")
-            else:
-                welcome_embed = discord.Embed(
-                    title="🎓 TARUMT Verification Gateway",
-                    description=(
-                        f"Welcome {member.mention} to **{member.guild.name}**!\n"
-                        "Choose an option below to gain access:\n\n"
-                        "🎓 **TARUMT Student** — Enter Student ID to receive faculty roles\n"
-                        "🎟️ **Referral Code** — Enter an invite code from an existing student\n"
-                        "🌐 **Guest / Speaker** — Apply for visitor access"
-                    ),
-                    color=discord.Color.blue(),
-                )
-                welcome_embed.set_footer(text="TARVeri Verification System • Fast & Secure")
+            welcome_embed = build_gateway_panel_embed(
+                guild_name=member.guild.name,
+                require_email=guild_email_required,
+                member_mention=member.mention,
+            )
 
             view = (
                 VerificationGatewayView(self.service, self.guest_service)
