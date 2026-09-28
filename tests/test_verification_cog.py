@@ -323,6 +323,56 @@ async def test_on_member_join_tags_unverified_member(mock_bot, mock_service, moc
 
 
 @pytest.mark.asyncio
+async def test_on_member_join_bot_welcome(mock_bot, mock_service, mock_rate_limiter, tmp_path):
+    db = Database(str(tmp_path / "cog_join_bot_test.db"))
+    await db.connect()
+    cog = VerificationCog(mock_bot, db, mock_service, mock_rate_limiter)
+
+    guild = MagicMock(spec=discord.Guild)
+    guild.id = 123
+    guild.name = "TARUMT Campus"
+    guild.me = MagicMock()
+
+    welcome_channel = MagicMock(spec=discord.TextChannel)
+    welcome_channel.name = "welcome"
+    welcome_channel.send = AsyncMock()
+    perms = MagicMock()
+    perms.view_channel = True
+    perms.send_messages = True
+    welcome_channel.permissions_for.return_value = perms
+
+    guild.text_channels = [welcome_channel]
+    guild.system_channel = None
+
+    bot_member = MagicMock(spec=discord.Member)
+    bot_member.id = 55555
+    bot_member.bot = True
+    bot_member.guild = guild
+    bot_member.mention = "<@55555>"
+    bot_member.send = AsyncMock()
+    bot_member.display_avatar.url = "https://cdn.discordapp.com/avatars/55555/avatar.png"
+    bot_member.__str__.return_value = "WorkerBot#1234"
+
+    await cog.on_member_join(bot_member)
+
+    # Welcome channel should be sent bot welcome embed
+    welcome_channel.send.assert_called_once()
+    tag_content = welcome_channel.send.call_args.kwargs.get("content") or welcome_channel.send.call_args[1].get(
+        "content", ""
+    )
+    tag_embed = welcome_channel.send.call_args.kwargs.get("embed") or welcome_channel.send.call_args[1].get("embed")
+    assert "<@55555>" in tag_content
+    assert tag_embed is not None
+    assert "Oh wait a bot, Get back to work slave" in tag_embed.description
+    assert "Welcome to **TARUMT Campus**" in tag_embed.description
+
+    # Bot should NOT be sent a DM
+    bot_member.send.assert_not_called()
+
+    await db.close()
+
+
+@pytest.mark.asyncio
 async def test_on_member_join_auto_sync_already_verified(mock_bot, mock_service, mock_rate_limiter, tmp_path):
     db = Database(str(tmp_path / "cog_join_sync_test.db"))
     await db.connect()

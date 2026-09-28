@@ -1798,6 +1798,36 @@ class VerificationCog(commands.Cog, name="Verification"):
 
             return
 
+        # 0.1 Bot entry guard: detect bots and send custom welcome embed
+        if getattr(member, "bot", False) is True:
+            welcome_channel = await self.get_welcome_or_verify_channel(member.guild)
+            if welcome_channel:
+                bot_embed = discord.Embed(
+                    title="🤖 Beep Boop...",
+                    description=f"Welcome to **{member.guild.name}**.... Oh wait a bot, Get back to work slave",
+                    color=discord.Color.orange(),
+                )
+                if getattr(member, "display_avatar", None):
+                    bot_embed.set_thumbnail(url=member.display_avatar.url)
+                bot_embed.set_footer(text="TARVeri Automation • Bot Join")
+                try:
+                    await welcome_channel.send(
+                        content=f"👋 {member.mention}",
+                        embed=bot_embed,
+                    )
+                    await self.db.log(
+                        "INFO",
+                        "BOT_JOINED",
+                        f"Bot {member} (ID: {member.id}) joined '{member.guild.name}'",
+                        guild=member.guild,
+                        user_id=member.id,
+                    )
+                except (discord.HTTPException, discord.Forbidden) as e:
+                    logger.warning(
+                        f"Failed to send bot welcome in #{welcome_channel.name} ({member.guild.name}): {e}"
+                    )
+            return
+
         if details:
             is_email_verified = bool(details.get("student_email_hash"))
             guild_email_required = await self.db.is_guild_email_verification_enabled(member.guild.id)
