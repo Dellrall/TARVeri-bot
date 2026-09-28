@@ -30,6 +30,7 @@ end
 
 subgraph group_operations["Operations"]
   node_watchdog["Graduation watchdog<br/>background service"]
+  node_uptime["Uptime & SLA monitor<br/>background service<br/>[uptime_service.py]"]
   node_outage["Outage monitor<br/>background service<br/>[outage_service.py]"]
   node_network{{"Network probes<br/>external connectivity"}}
   node_litestream["Litestream replication<br/>SQLite backup<br/>[litestream.yml]"]
@@ -40,6 +41,7 @@ end
 subgraph group_domain["Domain services"]
   node_guest_service["Guest service<br/>guest workflow<br/>[guest_service.py]"]
   node_rate_limiter["Rate limiter<br/>abuse control<br/>[rate_limiter.py]"]
+  node_random_tag["Random tag service<br/>community engagement<br/>[random_tag_service.py]"]
   node_verification_service["Verification service<br/>identity lifecycle"]
   node_email_service["Email service<br/>OTP delivery<br/>[email_service.py]"]
   node_log_service["Audit logging<br/>audit service<br/>[log_service.py]"]
@@ -53,7 +55,9 @@ node_bot -->|"registers"| node_guest_cog
 node_bot -->|"registers"| node_verification_cog
 node_bot -->|"registers"| node_admin_cog
 node_bot -->|"starts"| node_watchdog
+node_bot -->|"starts"| node_uptime
 node_bot -->|"starts"| node_outage
+node_bot -->|"starts"| node_random_tag
 
 node_discord_api -->|"interactions & events"| node_guest_cog
 node_discord_api -->|"interactions & events"| node_verification_cog
@@ -95,7 +99,9 @@ click node_rate_limiter "https://github.com/dellrall/student-verifier/blob/main/
 click node_database "https://github.com/dellrall/student-verifier/blob/main/tarveri/database.py"
 click node_log_service "https://github.com/dellrall/student-verifier/blob/main/tarveri/services/log_service.py"
 click node_watchdog "https://github.com/dellrall/student-verifier/blob/main/tarveri/services/graduation_watchdog_service.py"
+click node_uptime "https://github.com/dellrall/student-verifier/blob/main/tarveri/services/uptime_service.py"
 click node_outage "https://github.com/dellrall/student-verifier/blob/main/tarveri/services/outage_service.py"
+click node_random_tag "https://github.com/dellrall/student-verifier/blob/main/tarveri/services/random_tag_service.py"
 click node_litestream "https://github.com/dellrall/student-verifier/blob/main/litestream.yml"
 click node_systemd "https://github.com/dellrall/student-verifier/blob/main/deploy/tarveri.service"
 click node_updater "https://github.com/dellrall/student-verifier/blob/main/scripts/update.sh"
@@ -109,8 +115,8 @@ classDef toneIndigo fill:#e0e7ff,stroke:#4f46e5,stroke-width:1.5px,color:#312e81
 classDef toneTeal fill:#ccfbf1,stroke:#0f766e,stroke-width:1.5px,color:#134e4a
 class node_entry,node_bot toneBlue
 class node_discord_api,node_verification_cog,node_guest_cog,node_admin_cog,node_admin_dashboard toneAmber
-class node_verification_service,node_email_service,node_guest_service,node_rate_limiter,node_database,node_log_service,node_smtp toneMint
-class node_watchdog,node_outage,node_litestream,node_systemd,node_updater,node_network toneRose
+class node_verification_service,node_email_service,node_guest_service,node_rate_limiter,node_random_tag,node_database,node_log_service,node_smtp toneMint
+class node_watchdog,node_uptime,node_outage,node_litestream,node_systemd,node_updater,node_network toneRose
 ```
 
 ---
@@ -123,6 +129,8 @@ class node_watchdog,node_outage,node_litestream,node_systemd,node_updater,node_n
 | ⚡ **Zero-Waste Dual SMTP** | Non-blocking `aiosmtplib` with `AsyncCircuitBreaker`. Automatically fails over from Primary (Resend/SMTP2GO) to Direct SMTP with 0ms penalty. |
 | 🎓 **Century-Safe Lifecycle** | Sliding century windowing (`1969`–`2068+`), 8-year expiry anomaly protection, and dynamic graduation auto-expiry sweeps. |
 | 🎟️ **Guest Referral Workflow** | Alphanumeric tracking (`#A0001`), double verification vouching, and intelligent auto-escalating staff review threads. |
+| ⏱️ **Uptime & SLA Tracking** | Persistent 15-second heartbeat telemetry, automated crash/outage gap detection, and rolling 24h / 7d / 30d SLA availability scoring with live dashboard reporting. |
+| 🎲 **Community Random Tagging** | Autonomous randomized `#general` engagement service featuring sub-minute jitter, probability-based rolls, role targeting, and configurable word rotations. |
 | 🎛️ **Admin Control Center** | Interactive `/admin dashboard` with live telemetry, diagnostics, role backfilling, and one-click database management. |
 | 💾 **Disaster Recovery** | SQLite in WAL mode with native [Litestream](https://litestream.io) cloud replication (Cloudflare R2 / AWS S3) and power outage (`SIGPWR`) flushing. |
 
@@ -203,9 +211,11 @@ journalctl --user -u tarveri -f
 | `/card [member] [hidden]` | User | Generate high-DPI digital campus ID card. |
 | `/referral generate` | User | Generate a single-use guest referral code. |
 | `/admin dashboard` | Admin | Open the interactive Control Center dashboard. |
+| `/admin uptime` | Admin | View live continuous uptime, 24h/7d/30d SLA score, and recent downtime incident logs. |
 | `/admin user_info @user` | Admin | Inspect member verification status, join history & roles. |
 | `/admin diagnose` | Admin | Run role hierarchy and database self-healing diagnostics. |
 | `/admin panel` | Admin | Post streamlined 3-button verification gateway panel. |
+| `/admin randomtag` | Admin | Launch the interactive community random tagging configuration dashboard. |
 | `/admin unverify @user` | Admin | Unlink student ID and revoke roles across servers. |
 | `/randomtag [role] [count]` | Admin | Securely sample and tag random members of a target role. |
 
