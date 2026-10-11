@@ -645,9 +645,11 @@ class AdminDashboardView(ui.View):
             sla_metrics = await res if inspect.isawaitable(res) else res
             if isinstance(sla_metrics, dict) and "sla_24h" in sla_metrics and isinstance(sla_metrics["sla_24h"], dict):
                 sla_24h_val = sla_metrics["sla_24h"].get("sla_percent", 100.0)
+                tot_up = sla_metrics.get("total_uptime_str")
+                total_text = f" (Total: **{tot_up}**)" if tot_up else ""
                 embed.add_field(
                     name="⏱️ Uptime & 24h SLA",
-                    value=f"**{sla_metrics.get('current_uptime_str', 'Online')}** • **{sla_24h_val:.2f}%** ({sla_metrics['sla_24h'].get('grade', 'Healthy')})",
+                    value=f"**{sla_metrics.get('current_uptime_str', 'Online')}**{total_text} • **{sla_24h_val:.2f}%** ({sla_metrics['sla_24h'].get('grade', 'Healthy')})",
                     inline=True,
                 )
 
@@ -1455,23 +1457,35 @@ class AdminDashboardView(ui.View):
         started_ts = metrics.get("started_at_timestamp")
         started_str = f"<t:{started_ts}:F> (<t:{started_ts}:R>)" if started_ts else metrics.get("started_at", "N/A")
 
+        total_uptime_str = metrics.get("total_uptime_str", metrics["current_uptime_str"])
+        longest_uptime_str = metrics.get("longest_uptime_str", metrics["current_uptime_str"])
+        longest_badge = " *(🔥 Active Record)*" if metrics.get("longest_uptime_is_current") else ""
+
         session_info = (
-            f"• **Continuous Uptime:** **{metrics['current_uptime_str']}**\n"
+            f"• **Current Session Uptime:** **{metrics['current_uptime_str']}**\n"
+            f"• **All-Time Total Uptime:** **{total_uptime_str}**\n"
+            f"• **Longest Uptime Record:** **{longest_uptime_str}**{longest_badge}\n"
             f"• **Session Started:** {started_str}\n"
             f"• **Session ID:** `{metrics['session_id']}`\n"
             f"• **Gateway Latency:** `{gateway_ping}`"
         )
         embed.add_field(name="🟢 Active Session Health", value=session_info, inline=False)
 
-        sla_summary = (
-            f"• **24-Hour SLA:** **`{sla_24h['sla_percent']:.3f}%`** — {sla_24h['grade']}\n"
-            f"  └ Downtime: `{sla_24h['downtime_str']}` ({sla_24h['incidents']} incident(s))\n"
-            f"• **7-Day SLA:** **`{sla_7d['sla_percent']:.3f}%`** — {sla_7d['grade']}\n"
-            f"  └ Downtime: `{sla_7d['downtime_str']}` ({sla_7d['incidents']} incident(s))\n"
-            f"• **30-Day SLA:** **`{sla_30d['sla_percent']:.3f}%`** — {sla_30d['grade']}\n"
-            f"  └ Downtime: `{sla_30d['downtime_str']}` ({sla_30d['incidents']} incident(s))"
-        )
-        embed.add_field(name="📊 SLA Availability Scores", value=sla_summary, inline=False)
+        all_time_sla = metrics.get("sla_all_time")
+        sla_lines = [
+            f"• **24-Hour SLA:** **`{sla_24h['sla_percent']:.3f}%`** — {sla_24h['grade']}",
+            f"  └ Downtime: `{sla_24h['downtime_str']}` ({sla_24h['incidents']} incident(s))",
+            f"• **7-Day SLA:** **`{sla_7d['sla_percent']:.3f}%`** — {sla_7d['grade']}",
+            f"  └ Downtime: `{sla_7d['downtime_str']}` ({sla_7d['incidents']} incident(s))",
+            f"• **30-Day SLA:** **`{sla_30d['sla_percent']:.3f}%`** — {sla_30d['grade']}",
+            f"  └ Downtime: `{sla_30d['downtime_str']}` ({sla_30d['incidents']} incident(s))",
+        ]
+        if all_time_sla:
+            sla_lines.append(
+                f"• **All-Time SLA:** **`{all_time_sla['sla_percent']:.3f}%`** — {all_time_sla['grade']}\n"
+                f"  └ Total Uptime: `{total_uptime_str}` • Total Downtime: `{all_time_sla['downtime_str']}`"
+            )
+        embed.add_field(name="📊 SLA Availability Scores", value="\n".join(sla_lines), inline=False)
 
         recent_incidents = metrics.get("recent_incidents", [])
         if recent_incidents:

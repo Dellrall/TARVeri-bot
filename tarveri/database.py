@@ -416,6 +416,15 @@ class Database:
                 recorded_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS service_uptime_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT UNIQUE NOT NULL,
+                started_at TEXT NOT NULL,
+                ended_at TEXT NOT NULL,
+                uptime_seconds REAL NOT NULL,
+                clean_shutdown INTEGER NOT NULL DEFAULT 0
+            );
+
             CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_log(event_type);
             CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
             CREATE INDEX IF NOT EXISTS idx_audit_user_id ON audit_log(user_id);
@@ -433,6 +442,7 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_bounced_emails_hash ON bounced_emails(email_hash);
             CREATE INDEX IF NOT EXISTS idx_downtime_started_at ON service_downtime_events(started_at);
             CREATE INDEX IF NOT EXISTS idx_downtime_ended_at ON service_downtime_events(ended_at);
+            CREATE INDEX IF NOT EXISTS idx_uptime_sessions_started ON service_uptime_sessions(started_at);
             """
         )
 
@@ -2678,3 +2688,85 @@ class Database:
             }
             for r in rows
         ]
+
+    async def record_uptime_session(
+        self,
+        session_id: str,
+        started_at: str,
+        ended_at: str,
+        uptime_seconds: float,
+        clean_shutdown: bool = False,
+    ) -> None:
+        """Inserts or updates a completed or tracked service uptime session record."""
+        async with self.transaction() as conn:
+            await conn.execute(
+                """
+                INSERT INTO service_uptime_sessions (session_id, started_at, ended_at, uptime_seconds, clean_shutdown)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    ended_at = excluded.ended_at,
+                    uptime_seconds = excluded.uptime_seconds,
+                    clean_shutdown = excluded.clean_shutdown;
+                """,
+                (session_id, started_at, ended_at, max(0.0, float(uptime_seconds)), 1 if clean_shutdown else 0),
+            )
+
+    async def get_uptime_sessions_aggregate(self, exclude_session_id: str | None = None) -> dict[str, Any]:
+        """Calculates all-time aggregate uptime metrics and finds the longest historical uptime record."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+
+        where_clause = "WHERE session_id != ?" if exclude_session_id else ""
+        params: tuple[Any, ...] = (exclude_session_id,) if exclude_session_id else ()
+
+        cursor = await self._conn.execute(
+            f"""
+            SELECT
+                COALESCE(SUM(uptime_seconds), 0.0),
+                COALESCE(MAX(uptime_seconds), 0.0),
+                COUNT(*)
+            FROM service_uptime_sessions
+            {where_clause};
+            """,
+            params,
+        )
+        row = await cursor.fetchone()
+        total_sec = float(row[0]) if row and row[0] is not None else 0.0
+        max_sec = float(row[1]) if row and row[1] is not None else 0.0
+        total_sessions = int(row[2]) if row and row[2] is not None else 0
+
+        best_cursor = await self._conn.execute(
+            f"""
+            SELECT session_id, started_at, ended_at, uptime_seconds, clean_shutdown
+            FROM service_uptime_sessions
+            {where_clause}
+            ORDER BY uptime_seconds DESC
+            LIMIT 1;
+            """,
+            params,
+        )
+        best_row = await best_cursor.fetchone()
+        best_session = None
+        if best_row:
+            best_session = {
+                "session_id": best_row[0],
+                "started_at": best_row[1],
+                "ended_at": best_row[2],
+                "uptime_seconds": float(best_row[3]),
+                "clean_shutdown": bool(best_row[4]),
+            }
+
+        return {
+            "total_uptime_seconds": total_sec,
+            "longest_uptime_seconds": max_sec,
+            "total_sessions": total_sessions,
+            "longest_session": best_session,
+        }
+
+    async def get_total_downtime_seconds(self) -> float:
+        """Calculates all-time total recorded downtime duration in seconds."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+        cursor = await self._conn.execute("SELECT COALESCE(SUM(duration_seconds), 0.0) FROM service_downtime_events;")
+        row = await cursor.fetchone()
+        return float(row[0]) if row and row[0] is not None else 0.0

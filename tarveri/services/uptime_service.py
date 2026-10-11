@@ -142,6 +142,14 @@ class UptimeService:
         now_ts = now_formatted()
         try:
             if self.db.is_connected:
+                if hasattr(self.db, "record_uptime_session"):
+                    await self.db.record_uptime_session(
+                        session_id=self.session_id,
+                        started_at=self.started_at.strftime("%Y-%m-%d %H:%M:%S"),
+                        ended_at=now_ts,
+                        uptime_seconds=self.current_uptime_seconds,
+                        clean_shutdown=True,
+                    )
                 await self.db.record_clean_shutdown(clean_shutdown_at=now_ts)
         except Exception as e:
             logger.debug(f"Could not record clean shutdown timestamp in database: {e}")
@@ -155,8 +163,26 @@ class UptimeService:
             if not prev:
                 return
 
+            prev_session_id = prev.get("session_id")
+            prev_started_str = prev.get("started_at")
             last_hb_str = prev.get("last_heartbeat_at")
             clean_sd_str = prev.get("clean_shutdown_at")
+
+            # Archive the previous session's uptime record into service_uptime_sessions
+            if prev_session_id and prev_started_str and (clean_sd_str or last_hb_str):
+                prev_end_str = clean_sd_str or last_hb_str
+                dt_p_start = parse_db_timestamp(prev_started_str)
+                dt_p_end = parse_db_timestamp(prev_end_str)
+                if dt_p_start and dt_p_end:
+                    prev_uptime_sec = max(0.0, (dt_p_end - dt_p_start).total_seconds())
+                    if hasattr(self.db, "record_uptime_session"):
+                        await self.db.record_uptime_session(
+                            session_id=prev_session_id,
+                            started_at=prev_started_str,
+                            ended_at=prev_end_str,
+                            uptime_seconds=prev_uptime_sec,
+                            clean_shutdown=bool(clean_sd_str),
+                        )
 
             downtime_start_dt = None
             downtime_reason = "Clean service restart / update"
@@ -220,12 +246,21 @@ class UptimeService:
             logger.warning(f"Failed to record gateway outage event in database: {e}")
 
     async def _heartbeat_loop(self) -> None:
-        """Periodic background task updating the database heartbeat timestamp."""
+        """Periodic background task updating the database heartbeat timestamp and current session uptime."""
         while self._is_running:
             try:
                 await asyncio.sleep(self.heartbeat_interval_seconds)
                 if self.db.is_connected:
-                    await self.db.update_uptime_heartbeat_timestamp(now_formatted())
+                    now_ts = now_formatted()
+                    await self.db.update_uptime_heartbeat_timestamp(now_ts)
+                    if hasattr(self.db, "record_uptime_session"):
+                        await self.db.record_uptime_session(
+                            session_id=self.session_id,
+                            started_at=self.started_at.strftime("%Y-%m-%d %H:%M:%S"),
+                            ended_at=now_ts,
+                            uptime_seconds=self.current_uptime_seconds,
+                            clean_shutdown=False,
+                        )
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -287,9 +322,43 @@ class UptimeService:
         sla_7d = _calc_sla(dt_7d, total_7d_sec)
         sla_30d = _calc_sla(dt_30d, total_30d_sec)
 
+        # All-time and historical uptime session aggregates
+        hist_total_sec = 0.0
+        hist_max_sec = 0.0
+        past_sessions_count = 0
+        longest_session_info = None
+
+        if hasattr(self.db, "get_uptime_sessions_aggregate"):
+            hist_agg = await self.db.get_uptime_sessions_aggregate(exclude_session_id=self.session_id)
+            hist_total_sec = hist_agg.get("total_uptime_seconds", 0.0)
+            hist_max_sec = hist_agg.get("longest_uptime_seconds", 0.0)
+            past_sessions_count = hist_agg.get("total_sessions", 0)
+            longest_session_info = hist_agg.get("longest_session")
+
+        current_uptime_sec = self.current_uptime_seconds
+        total_uptime_sec = hist_total_sec + current_uptime_sec
+        longest_uptime_sec = max(hist_max_sec, current_uptime_sec)
+        longest_is_current = current_uptime_sec >= hist_max_sec
+        total_sessions_count = past_sessions_count + 1
+
+        # All-time SLA
+        total_downtime_sec = 0.0
+        if hasattr(self.db, "get_total_downtime_seconds"):
+            total_downtime_sec = await self.db.get_total_downtime_seconds()
+
+        total_operational_sec = total_uptime_sec + total_downtime_sec
+        all_time_sla_pct = _calc_sla(total_downtime_sec, total_operational_sec) if total_operational_sec > 0 else 100.0
+
         return {
             "current_uptime_seconds": self.current_uptime_seconds,
             "current_uptime_str": self.current_uptime_str,
+            "total_uptime_seconds": total_uptime_sec,
+            "total_uptime_str": format_duration_seconds(total_uptime_sec),
+            "longest_uptime_seconds": longest_uptime_sec,
+            "longest_uptime_str": format_duration_seconds(longest_uptime_sec),
+            "longest_uptime_is_current": longest_is_current,
+            "longest_session": longest_session_info,
+            "total_sessions_count": total_sessions_count,
             "started_at": self.started_at.strftime("%Y-%m-%d %H:%M:%S"),
             "started_at_timestamp": int(self.started_at.timestamp()),
             "session_id": self.session_id,
@@ -313,6 +382,12 @@ class UptimeService:
                 "downtime_str": format_duration_seconds(dt_30d),
                 "incidents": count_30d,
                 "grade": evaluate_sla_grade(sla_30d),
+            },
+            "sla_all_time": {
+                "sla_percent": all_time_sla_pct,
+                "downtime_seconds": total_downtime_sec,
+                "downtime_str": format_duration_seconds(total_downtime_sec),
+                "grade": evaluate_sla_grade(all_time_sla_pct),
             },
             "recent_incidents": recent_events,
         }

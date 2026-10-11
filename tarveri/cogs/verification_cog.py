@@ -1823,9 +1823,7 @@ class VerificationCog(commands.Cog, name="Verification"):
                         user_id=member.id,
                     )
                 except (discord.HTTPException, discord.Forbidden) as e:
-                    logger.warning(
-                        f"Failed to send bot welcome in #{welcome_channel.name} ({member.guild.name}): {e}"
-                    )
+                    logger.warning(f"Failed to send bot welcome in #{welcome_channel.name} ({member.guild.name}): {e}")
             return
 
         if details:

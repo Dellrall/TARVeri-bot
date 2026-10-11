@@ -248,3 +248,79 @@ async def test_admin_uptime_slash_command(tmp_path):
 
     await service.stop()
     await db.close()
+
+
+@pytest.mark.asyncio
+async def test_uptime_service_total_and_longest_records(tmp_path):
+    db_path = str(tmp_path / "uptime_records.db")
+    db = Database(db_path)
+    await db.connect()
+
+    # 1. Pre-seed two completed sessions into service_uptime_sessions
+    # Session 1: 1,500s
+    await db.record_uptime_session(
+        session_id="past_session_alpha",
+        started_at="2026-10-01 10:00:00",
+        ended_at="2026-10-01 10:25:00",
+        uptime_seconds=1500.0,
+        clean_shutdown=True,
+    )
+    # Session 2: 7,200s (2 hours - current record)
+    await db.record_uptime_session(
+        session_id="past_session_beta",
+        started_at="2026-10-02 12:00:00",
+        ended_at="2026-10-02 14:00:00",
+        uptime_seconds=7200.0,
+        clean_shutdown=True,
+    )
+
+    mock_bot = MagicMock()
+    service = UptimeService(bot=mock_bot, db=db)
+    await service.start()
+
+    metrics = await service.get_sla_metrics()
+    assert metrics["total_uptime_seconds"] >= 8700.0  # 1500 + 7200 + current
+    assert metrics["longest_uptime_seconds"] == 7200.0
+    assert metrics["longest_uptime_is_current"] is False
+    assert metrics["total_sessions_count"] == 3
+    assert "longest_session" in metrics
+    assert metrics["longest_session"]["session_id"] == "past_session_beta"
+
+    # Simulate current session reaching 10,000s (> 7200s)
+    service.started_at_monotonic -= 10000.0
+    new_metrics = await service.get_sla_metrics()
+    assert new_metrics["longest_uptime_seconds"] >= 10000.0
+    assert new_metrics["longest_uptime_is_current"] is True
+
+    # Test that embed displays the total and longest record
+    cog = AdminCog(
+        bot=mock_bot,
+        db=db,
+        service=MagicMock(),
+        rate_limiter=RateLimiter(),
+        admin_role_name="Admin",
+        uptime_service=service,
+    )
+    admin_user = MagicMock(spec=discord.Member)
+    dashboard_view = AdminDashboardView(cog=cog, admin_user=admin_user, initial_category="uptime")
+    mock_guild = MagicMock(spec=discord.Guild)
+    mock_guild.id = 111
+    mock_guild.name = "Test Campus"
+
+    embed = await dashboard_view.build_uptime_embed(mock_guild)
+    session_field = next(f for f in embed.fields if "Active Session Health" in f.name)
+    assert "All-Time Total Uptime" in session_field.value
+    assert "Longest Uptime Record" in session_field.value
+    assert "Active Record" in session_field.value
+
+    sla_field = next(f for f in embed.fields if "SLA Availability Scores" in f.name)
+    assert "All-Time SLA" in sla_field.value
+
+    await service.stop()
+
+    # Verify that the stopped session was updated in service_uptime_sessions with clean_shutdown=True
+    agg = await db.get_uptime_sessions_aggregate()
+    assert agg["total_sessions"] == 3
+    assert agg["longest_uptime_seconds"] >= 10000.0
+
+    await db.close()
