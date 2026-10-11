@@ -215,7 +215,7 @@ journalctl --user -u tarveri -f
 | `/admin user_info @user` | Admin | Inspect member verification status, join history & roles. |
 | `/admin diagnose` | Admin | Run role hierarchy and database self-healing diagnostics. |
 | `/admin panel` | Admin | Post streamlined 3-button verification gateway panel. |
-| `/admin randomtag` | Admin | Launch the interactive community random tagging configuration dashboard. |
+| `/admin src [action]` | Admin | Manage faculty SRC roles (status, enable, disable, remove). |
 | `/admin unverify @user` | Admin | Unlink student ID and revoke roles across servers. |
 | `/randomtag [role] [count]` | Admin | Securely sample and tag random members of a target role. |
 

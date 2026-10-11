@@ -32,6 +32,7 @@ from tarveri.config import (
     GUEST_ROLE_COLOR,
     GUEST_ROLE_PATTERN,
     ROLE_QUALIFIER_PATTERN,
+    SRC_ROLE_NAMES,
     SRC_ROLES,
     STUDY_LEVEL_ALIASES,
     STUDY_LEVEL_COLORS,
@@ -235,15 +236,34 @@ class VerificationService:
 
         return None
 
-    async def restore_src_roles(self, guild: discord.Guild) -> dict[str, int]:
+    async def restore_src_roles(self, guild: discord.Guild, force: bool = False) -> dict[str, Any]:
         """
         Restores / creates the faculty SRC (Student Representative Council) roles if missing.
         FAFB SRC, CPUS SRC, FOCS SRC, FCCI SRC, FOAS SRC, FOBE SRC, FSSH SRC, FOET SRC.
         Guarantees idempotency via per-guild role lock.
+        Checks if the server has opted in to SRC roles unless force=True.
         """
-        stats = {"created": 0, "existing": 0, "failed": 0}
+        stats: dict[str, Any] = {"created": 0, "existing": 0, "failed": 0, "disabled": False}
         if not guild or not hasattr(guild, "roles"):
             return stats
+
+        # Opt-in guard: skip restoration if guild has not explicitly enabled SRC role management
+        if not force and hasattr(self.db, "is_guild_src_roles_enabled"):
+            try:
+                is_enabled = await self.db.is_guild_src_roles_enabled(guild.id)
+                if not is_enabled:
+                    guild_roles = list(getattr(guild, "roles", []))
+                    existing = sum(
+                        1
+                        for src_name in SRC_ROLES.values()
+                        if any(getattr(r, "name", "").strip().lower() == src_name.lower() for r in guild_roles)
+                    )
+                    stats["existing"] = existing
+                    stats["disabled"] = True
+                    return stats
+            except Exception as e:
+                logger.warning(f"Failed checking SRC role setting for guild {guild.id}: {e}")
+                return stats
 
         can_manage = (
             getattr(guild.me.guild_permissions, "manage_roles", False)
@@ -299,6 +319,69 @@ class VerificationService:
 
         if stats["created"] > 0:
             logger.info(f"[{guild.name}] Restored {stats['created']} missing SRC role(s).")
+
+        return stats
+
+    async def remove_src_roles(self, guild: discord.Guild) -> dict[str, Any]:
+        """
+        Deletes all faculty SRC roles from the guild, cleans up bot_created_roles,
+        and disables the guild's SRC role setting.
+        Guarantees thread-safety via per-guild role lock.
+        """
+        stats: dict[str, Any] = {"deleted": 0, "failed": 0, "not_found": 0, "roles": []}
+        if not guild or not hasattr(guild, "roles"):
+            return stats
+
+        can_manage = (
+            getattr(guild.me.guild_permissions, "manage_roles", False)
+            if hasattr(guild, "me") and hasattr(guild.me, "guild_permissions")
+            else False
+        )
+        if not can_manage:
+            stats["failed"] = len(SRC_ROLE_NAMES)
+            return stats
+
+        lock = self._get_guild_role_lock(guild.id)
+        async with lock:
+            guild_roles = list(getattr(guild, "roles", []))
+            if hasattr(guild, "fetch_roles") and callable(guild.fetch_roles):
+                try:
+                    live_roles = await guild.fetch_roles()
+                    if isinstance(live_roles, (list, tuple)):
+                        guild_roles = list(live_roles)
+                except (discord.HTTPException, discord.Forbidden):
+                    pass
+
+            for src_name in SRC_ROLE_NAMES:
+                matching_roles = [r for r in guild_roles if getattr(r, "name", "").strip().lower() == src_name.lower()]
+                if not matching_roles:
+                    stats["not_found"] += 1
+                    continue
+
+                for role in matching_roles:
+                    try:
+                        await role.delete(reason="TARVeri: Administrator removed faculty SRC roles")
+                        stats["deleted"] += 1
+                        stats["roles"].append(role.name)
+                        if hasattr(self.db, "delete_bot_created_role"):
+                            try:
+                                await self.db.delete_bot_created_role(role.id)
+                            except Exception as e:
+                                logger.debug(f"Could not remove bot_created_role record {role.id}: {e}")
+                    except (discord.Forbidden, discord.HTTPException) as e:
+                        stats["failed"] += 1
+                        logger.warning(f"Failed to delete SRC role '{role.name}' in '{guild.name}': {e}")
+
+            if hasattr(self.db, "set_guild_src_roles_enabled"):
+                await self.db.set_guild_src_roles_enabled(guild.id, False)
+
+            if hasattr(self.db, "log"):
+                await self.db.log(
+                    "INFO",
+                    "SRC_ROLES_REMOVED",
+                    f"Removed {stats['deleted']} faculty SRC role(s) from '{guild.name}' (Guild ID: {guild.id})",
+                    guild=guild,
+                )
 
         return stats
 

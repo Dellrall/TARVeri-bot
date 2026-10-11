@@ -127,6 +127,7 @@ async def test_concurrent_src_roles_restoration_idempotency(tmp_path):
         return r
 
     guild.create_role = AsyncMock(side_effect=mock_create_role)
+    await db.set_guild_src_roles_enabled(guild.id, True)
 
     # Run 5 concurrent restorations
     tasks = [service.restore_src_roles(guild) for _ in range(5)]

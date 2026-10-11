@@ -1186,3 +1186,118 @@ async def test_user_info_and_lookup_modal(tmp_path):
     modal_inter.followup.send.assert_called_once()
 
     await db.close()
+
+
+@pytest.mark.asyncio
+async def test_admin_src_slash_command(tmp_path):
+    db_path = str(tmp_path / "admin_src_cmd_test.db")
+    db = Database(db_path)
+    await db.connect()
+
+    bot = MagicMock()
+    service = MagicMock()
+    service.restore_src_roles = AsyncMock(return_value={"created": 8, "existing": 0, "failed": 0})
+    service.remove_src_roles = AsyncMock(return_value={"deleted": 8, "failed": 0})
+    rate_limiter = MagicMock()
+    cog = AdminCog(bot, db, service, rate_limiter, admin_role_name="TARVeri Admin")
+
+    guild = MagicMock(spec=discord.Guild)
+    guild.id = 771122
+    guild.name = "SRC Slash Test Guild"
+    guild.roles = []
+
+    admin_user = MagicMock(spec=discord.Member)
+    admin_user.guild_permissions.administrator = True
+    admin_user.id = 998877
+
+    interaction = MagicMock(spec=discord.Interaction)
+    interaction.guild = guild
+    interaction.user = admin_user
+    interaction.response.defer = AsyncMock()
+    interaction.followup.send = AsyncMock()
+
+    # 1. status (default: disabled)
+    await cog.src_command.callback(cog, interaction, action="status")
+    interaction.followup.send.assert_called_once()
+    embed = interaction.followup.send.call_args[1]["embed"]
+    assert "DISABLED" in embed.fields[0].value
+
+    # 2. enable
+    interaction.followup.send.reset_mock()
+    await cog.src_command.callback(cog, interaction, action="enable")
+    assert await db.is_guild_src_roles_enabled(guild.id) is True
+    service.restore_src_roles.assert_called_once_with(guild, force=True)
+    embed = interaction.followup.send.call_args[1]["embed"]
+    assert "SRC Role Management Enabled" in embed.title
+
+    # 3. disable
+    interaction.followup.send.reset_mock()
+    await cog.src_command.callback(cog, interaction, action="disable")
+    assert await db.is_guild_src_roles_enabled(guild.id) is False
+    embed = interaction.followup.send.call_args[1]["embed"]
+    assert "SRC Role Management Disabled" in embed.title
+
+    # 4. remove
+    interaction.followup.send.reset_mock()
+    await cog.src_command.callback(cog, interaction, action="remove")
+    service.remove_src_roles.assert_called_once_with(guild)
+    embed = interaction.followup.send.call_args[1]["embed"]
+    assert "Faculty SRC Roles Removed" in embed.title
+
+    await db.close()
+
+
+@pytest.mark.asyncio
+async def test_admin_dashboard_src_role_controls(tmp_path):
+    db_path = str(tmp_path / "admin_dashboard_src_test.db")
+    db = Database(db_path)
+    await db.connect()
+
+    bot = MagicMock()
+    bot.guilds = []
+    service = MagicMock()
+    service.restore_src_roles = AsyncMock(return_value={"created": 8, "existing": 0, "failed": 0})
+    service.remove_src_roles = AsyncMock(return_value={"deleted": 8, "failed": 0})
+    rate_limiter = MagicMock()
+    cog = AdminCog(bot, db, service, rate_limiter, admin_role_name="TARVeri Admin")
+
+    guild = MagicMock(spec=discord.Guild)
+    guild.id = 884422
+    guild.name = "SRC Dashboard Test Guild"
+    guild.roles = []
+
+    admin_user = MagicMock(spec=discord.Member)
+    admin_user.guild_permissions.administrator = True
+    admin_user.id = 113355
+
+    view = AdminDashboardView(cog, admin_user, initial_category="diagnose")
+
+    interaction = MagicMock(spec=discord.Interaction)
+    interaction.guild = guild
+    interaction.user = admin_user
+    interaction.response.defer = AsyncMock()
+    interaction.edit_original_response = AsyncMock()
+
+    # 1. Toggle: False -> True
+    assert await db.is_guild_src_roles_enabled(guild.id) is False
+    await view._on_toggle_src_roles_clicked(interaction)
+    assert await db.is_guild_src_roles_enabled(guild.id) is True
+    service.restore_src_roles.assert_called_once_with(guild, force=True)
+    embed = interaction.edit_original_response.call_args[1]["embed"]
+    assert "SRC Role Management Enabled" in embed.description
+
+    # 2. Toggle: True -> False
+    interaction.edit_original_response.reset_mock()
+    await view._on_toggle_src_roles_clicked(interaction)
+    assert await db.is_guild_src_roles_enabled(guild.id) is False
+    embed = interaction.edit_original_response.call_args[1]["embed"]
+    assert "SRC Role Management Disabled" in embed.description
+
+    # 3. Remove roles button
+    interaction.edit_original_response.reset_mock()
+    await view._on_remove_src_roles_clicked(interaction)
+    service.remove_src_roles.assert_called_once_with(guild)
+    embed = interaction.edit_original_response.call_args[1]["embed"]
+    assert "SRC Roles Removed" in embed.description
+
+    await db.close()

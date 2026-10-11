@@ -1008,12 +1008,33 @@ async def test_restore_src_roles_creates_all_8_roles(tmp_path):
         rate_limiter = RateLimiter()
         service = VerificationService(bot, db, "secret_123", rate_limiter)
 
+        # Default: disabled (opt-out), should not create roles
+        stats_disabled = await service.restore_src_roles(guild)
+        assert stats_disabled.get("disabled") is True
+        assert stats_disabled["created"] == 0
+        assert stats_disabled["existing"] == 1
+        assert guild.create_role.call_count == 0
+
+        # Enable SRC roles explicitly
+        await db.set_guild_src_roles_enabled(guild.id, True)
+
         stats = await service.restore_src_roles(guild)
 
         assert stats["created"] == 7  # 8 total - 1 already existing
         assert stats["existing"] == 1
         assert stats["failed"] == 0
         assert guild.create_role.call_count == 7
+
+        # Test remove_src_roles
+        for r in created_roles:
+            r.delete = AsyncMock()
+        existing_focs_src.delete = AsyncMock()
+        guild.roles = [existing_focs_src] + created_roles
+
+        rem_stats = await service.remove_src_roles(guild)
+        assert rem_stats["deleted"] == 8
+        assert rem_stats["failed"] == 0
+        assert await db.is_guild_src_roles_enabled(guild.id) is False
     finally:
         await db.close()
 

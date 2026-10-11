@@ -21,6 +21,7 @@ from tarveri.config import (
     CAMPUS_ROLES,
     FACULTY_ROLE_NAMES,
     FACULTY_ROLES,
+    SRC_ROLE_NAMES,
     STUDY_LEVEL_ROLE_NAMES,
     STUDY_LEVEL_ROLES,
     get_configured_tz,
@@ -137,11 +138,6 @@ class AdminCog(commands.Cog, name="Admin"):
         embed = await view.build_uptime_embed(interaction.guild)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
-    @admin_group.command(
-        name="randomtag",
-        description="Configure randomized user mentions in #general.",
-    )
-    @app_commands.default_permissions(administrator=True)
     async def randomtag(self, interaction: discord.Interaction) -> None:
         """Launches the Random Tagging configuration dashboard."""
         if not self._check_admin(interaction):
@@ -833,6 +829,117 @@ class AdminCog(commands.Cog, name="Admin"):
             f"✅ Email role enforcement for **{interaction.guild.name}** is now {mode_str}.",
             ephemeral=True,
         )
+        schedule_ttl_delete(interaction, delay=60.0)
+
+    @admin_group.command(
+        name="src",
+        description="Configure, enable, disable, or remove faculty SRC roles in this server.",
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(
+        action="Action to perform: status (check state), enable (opt-in & restore roles), disable (opt-out), or remove (delete roles).",
+    )
+    async def src_command(
+        self,
+        interaction: discord.Interaction,
+        action: Literal["status", "enable", "disable", "remove"] = "status",
+    ) -> None:
+        """Manages faculty SRC roles and server opt-in policy."""
+        if not self._check_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this command.", ephemeral=True
+            )
+            schedule_ttl_delete(interaction, delay=60.0)
+            return
+
+        if not interaction.guild:
+            await interaction.response.send_message("❌ This command must be used within a server.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+
+        if action == "status":
+            is_enabled = await self.db.is_guild_src_roles_enabled(guild.id)
+            existing_roles = [r for r in guild.roles if r.name in SRC_ROLE_NAMES]
+            embed = discord.Embed(
+                title=f"🏛️ SRC Roles Configuration — {guild.name}",
+                color=discord.Color.blue(),
+            )
+            status_text = (
+                "🟢 **ENABLED** (Roles are auto-managed and restored during self-healing)"
+                if is_enabled
+                else "⚪ **DISABLED** (Skipped for this server)"
+            )
+            embed.add_field(name="Policy Status", value=status_text, inline=False)
+            embed.add_field(
+                name="Existing SRC Roles on Server",
+                value=(
+                    f"Found **{len(existing_roles)}/{len(SRC_ROLE_NAMES)}** faculty SRC roles on this server."
+                    if existing_roles
+                    else "*No faculty SRC roles currently exist on this server.*"
+                ),
+                inline=False,
+            )
+            embed.set_footer(text="Use '/admin src enable' to turn on, or '/admin src remove' to delete them.")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        elif action == "enable":
+            await self.db.set_guild_src_roles_enabled(guild.id, True)
+            src_stats = await self.service.restore_src_roles(guild, force=True)
+            await self.db.log(
+                "INFO",
+                "CONFIG_SRC_ROLES",
+                f"SRC role management enabled by {interaction.user} (Created: {src_stats['created']}, Existing: {src_stats['existing']})",
+                guild=guild,
+                user_id=interaction.user.id,
+            )
+            embed = discord.Embed(
+                title=f"✅ SRC Role Management Enabled — {guild.name}",
+                description="Faculty SRC roles are now **enabled** and will be maintained on this server.",
+                color=discord.Color.green(),
+            )
+            embed.add_field(
+                name="Restoration Summary",
+                value=f"• Created: **{src_stats['created']}** missing role(s)\n• Already Existing: **{src_stats['existing']}** role(s)\n• Failed: **{src_stats['failed']}**",
+                inline=False,
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        elif action == "disable":
+            await self.db.set_guild_src_roles_enabled(guild.id, False)
+            await self.db.log(
+                "INFO",
+                "CONFIG_SRC_ROLES",
+                f"SRC role management disabled by {interaction.user}",
+                guild=guild,
+                user_id=interaction.user.id,
+            )
+            embed = discord.Embed(
+                title=f"⚪ SRC Role Management Disabled — {guild.name}",
+                description=(
+                    "SRC roles will **no longer be auto-created or restored** during bot restarts or diagnostics.\n"
+                    "*(Note: Existing roles were left untouched. Use `/admin src remove` if you wish to delete them).*"
+                ),
+                color=discord.Color.light_grey(),
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        elif action == "remove":
+            stats = await self.service.remove_src_roles(guild)
+            embed = discord.Embed(
+                title=f"🗑️ Faculty SRC Roles Removed — {guild.name}",
+                description=f"Successfully deleted **{stats['deleted']}** faculty SRC role(s) from this server and disabled SRC role management.",
+                color=discord.Color.red(),
+            )
+            if stats["failed"] > 0:
+                embed.add_field(
+                    name="⚠️ Failures",
+                    value=f"{stats['failed']} role(s) could not be deleted (ensure bot's role is positioned above them in Server Settings > Roles).",
+                    inline=False,
+                )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
         schedule_ttl_delete(interaction, delay=60.0)
 
     # ==========================================

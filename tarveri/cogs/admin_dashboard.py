@@ -10,6 +10,7 @@ from discord import ui
 
 from tarveri.config import (
     FACULTY_ROLES,
+    SRC_ROLE_NAMES,
     resolve_campus_role,
     resolve_faculty_role,
     resolve_study_level_role,
@@ -490,6 +491,14 @@ class AdminDashboardView(ui.View):
             btn_run_diag.callback = self._on_run_diagnostics_now
             self.add_item(btn_run_diag)
 
+            btn_toggle_src = ui.Button(label="Toggle SRC Roles", style=discord.ButtonStyle.primary, emoji="🏛️")
+            btn_toggle_src.callback = self._on_toggle_src_roles_clicked
+            self.add_item(btn_toggle_src)
+
+            btn_remove_src = ui.Button(label="Remove SRC Roles", style=discord.ButtonStyle.danger, emoji="🗑️")
+            btn_remove_src.callback = self._on_remove_src_roles_clicked
+            self.add_item(btn_remove_src)
+
         elif self.current_category == "moderation":
             btn_lookup = ui.Button(label="Lookup Member Info", style=discord.ButtonStyle.primary, emoji="🔍")
             btn_lookup.callback = self._on_user_lookup_clicked
@@ -719,6 +728,10 @@ class AdminDashboardView(ui.View):
         )
         embed.add_field(name="🛡️ Email Role Enforcement", value=enforce_mode_str, inline=True)
 
+        is_src_enabled = bool(settings[7]) if settings and len(settings) > 7 else False
+        src_mode_str = "🟢 **Enabled (Auto-managed)**" if is_src_enabled else "⚪ **Disabled (Opted Out)**"
+        embed.add_field(name="🏛️ Faculty SRC Roles", value=src_mode_str, inline=True)
+
         embed.set_footer(text="Use the buttons below to modify channels, roles, or reset to defaults.")
         return embed
 
@@ -747,16 +760,24 @@ class AdminDashboardView(ui.View):
                 inline=False,
             )
 
+        is_src_enabled = await self.cog.db.is_guild_src_roles_enabled(guild.id)
+        existing_src_count = sum(1 for r in getattr(guild, "roles", []) if getattr(r, "name", "") in SRC_ROLE_NAMES)
+        src_status_str = (
+            f"🟢 **Enabled** ({existing_src_count}/{len(SRC_ROLE_NAMES)} present • Auto-managed)"
+            if is_src_enabled
+            else f"⚪ **Disabled** ({existing_src_count} present • Skipped for this server)"
+        )
+
         embed.add_field(
             name="🔄 Self-Healing Capabilities",
             value=(
-                "• **SRC Roles**: Auto-restores missing faculty SRC roles.\n"
+                f"• **SRC Roles**: {src_status_str}\n"
                 "• **Role Deduplication**: Migrates members and cleans bot duplicates.\n"
                 "• **Member Role Reconciliation**: Restores faculty/alumni roles to verified students."
             ),
             inline=False,
         )
-        embed.set_footer(text="Click 'Run Diagnostics Now' to execute full self-healing.")
+        embed.set_footer(text="Use buttons below to run diagnostics, toggle SRC roles, or remove them.")
         return embed
 
     async def build_moderation_embed(self, guild: discord.Guild | None) -> discord.Embed:
@@ -1113,9 +1134,16 @@ class AdminDashboardView(ui.View):
         else:
             embed.add_field(name="✅ Health", value="All bot permissions and role positions are healthy.", inline=False)
 
+        is_src_enabled = await self.cog.db.is_guild_src_roles_enabled(guild.id)
+        if is_src_enabled:
+            src_stats = await self.cog.service.restore_src_roles(guild)
+            src_msg = f"• Restored **{src_stats.get('created', 0)}** missing SRC role(s) ({src_stats.get('existing', 0)} existing)"
+        else:
+            src_msg = "• *Disabled for this server (use 'Toggle SRC Roles' or `/admin src enable`)*"
+
         embed.add_field(
             name="🏛️ SRC Role Restorations",
-            value=f"• Restored **{src_stats.get('created', 0)}** missing SRC role(s)",
+            value=src_msg,
             inline=True,
         )
         embed.add_field(
@@ -1129,6 +1157,56 @@ class AdminDashboardView(ui.View):
             inline=False,
         )
 
+        await self.update_message(interaction, embed=embed)
+
+    async def _on_toggle_src_roles_clicked(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild:
+            return
+        await interaction.response.defer()
+        guild = interaction.guild
+        current_state = await self.cog.db.is_guild_src_roles_enabled(guild.id)
+        new_state = not current_state
+        await self.cog.db.set_guild_src_roles_enabled(guild.id, new_state)
+
+        if new_state:
+            src_stats = await self.cog.service.restore_src_roles(guild, force=True)
+            res_msg = (
+                f"🟢 **SRC Role Management Enabled**\nRestored **{src_stats['created']}** missing faculty SRC role(s)."
+            )
+        else:
+            res_msg = (
+                "⚪ **SRC Role Management Disabled**\nSRC roles will not be auto-created or restored on this server."
+            )
+
+        await self.cog.db.log(
+            "INFO",
+            "CONFIG_SRC_ROLES",
+            f"SRC role management toggled to {new_state} via Dashboard by {interaction.user}",
+            guild=guild,
+            user_id=interaction.user.id,
+        )
+
+        embed = await self.build_diagnose_embed(guild)
+        embed.description = f"{res_msg}\n\n{embed.description or ''}".strip()
+        await self.update_message(interaction, embed=embed)
+
+    async def _on_remove_src_roles_clicked(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild:
+            return
+        await interaction.response.defer()
+        guild = interaction.guild
+        stats = await self.cog.service.remove_src_roles(guild)
+
+        await self.cog.db.log(
+            "INFO",
+            "SRC_ROLES_REMOVED",
+            f"SRC roles removed via Dashboard by {interaction.user} (Deleted: {stats['deleted']}, Failed: {stats['failed']})",
+            guild=guild,
+            user_id=interaction.user.id,
+        )
+
+        embed = await self.build_diagnose_embed(guild)
+        embed.description = f"🗑️ **SRC Roles Removed**\nDeleted **{stats['deleted']}** faculty SRC role(s) from this server and disabled SRC role management."
         await self.update_message(interaction, embed=embed)
 
     async def _on_user_lookup_clicked(self, interaction: discord.Interaction) -> None:

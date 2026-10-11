@@ -67,6 +67,7 @@ Administrators can inspect comprehensive verification and membership metadata fo
 - **`/admin set_role [type] [role]`**: Configures `guest` or `admin` reviewer roles.
 - **`/admin panel [channel]`**: Posts the streamlined 3-button verification gateway panel.
 - **`/admin email_verification [enabled]`**: Enables or disables mandatory email OTP verification on the current server. When enabled, new members who verified without email in other servers must complete institutional email verification upon joining before roles are granted.
+- **`/admin src [action]`**: Configure faculty SRC (Student Representative Council) roles (`FAFB SRC`, `CPUS SRC`, `FOCS SRC`, etc.) on the current server. Supports `status` (view current policy), `enable` (opt-in and restore roles), `disable` (opt-out of self-healing creation), and `remove` (cleanly delete all 8 faculty SRC roles from the server). Can also be managed interactively via `/admin dashboard` under the Diagnostics category.
 
 ---
 
@@ -139,6 +140,7 @@ If a member previously verified (or joined during an outage) is missing their fa
 | `/admin stats` | Administrator | View student metrics and faculty distribution. |
 | `/admin email_stats` | Administrator | View email verification and opt-in rates. |
 | `/admin email_verification` | Administrator | Toggle mandatory student email OTP verification. |
+| `/admin src` | Administrator | Manage faculty SRC roles (status, enable, disable, remove). |
 | `/admin restore_roles` | Administrator | Restore missing faculty, campus, study level & alumni roles for a user or entire server. |
 | `/admin blacklist user` | Administrator | Blacklist a Discord user from verifying in this server. |
 | `/admin blacklist student_id` | Administrator | Blacklist a student ID hash from verifying in this server. |
