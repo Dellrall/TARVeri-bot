@@ -6,6 +6,7 @@ and private thread review orchestration.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
 from datetime import datetime
@@ -481,11 +482,22 @@ class RejectReasonModal(discord.ui.Modal, title="🛑 Rejection Reason"):
             await interaction.channel.send(
                 f"🛑 **Application Rejected by {interaction.user.mention}.** This thread will be locked and archived."
             )
-            await asyncio.sleep(5)
-            try:
-                await interaction.channel.edit(locked=True, archived=True)
-            except discord.HTTPException as exc:
-                logger.debug("Failed to lock/archive thread after reject: %s", exc)
+            await asyncio.sleep(1.5)
+            members_to_remove = []
+            if applicant_member:
+                members_to_remove.append(applicant_member)
+            referrer_id = self.ticket.get("referrer_id")
+            if referrer_id and interaction.guild:
+                ref_m = interaction.guild.get_member(referrer_id) or discord.Object(id=referrer_id)
+                members_to_remove.append(ref_m)
+
+            res = self.guest_service.safe_close_and_archive_thread(
+                interaction.channel,
+                reason=f"TARVeri: Guest rejected by {interaction.user}",
+                members_to_remove=members_to_remove,
+            )
+            if inspect.isawaitable(res):
+                await res
 
 
 class CloseTicketModal(discord.ui.Modal, title="🔒 Close Ticket (Without Kicking)"):
@@ -540,11 +552,22 @@ class CloseTicketModal(discord.ui.Modal, title="🔒 Close Ticket (Without Kicki
                     f"*(Applicant remains in the server; no role changes or kicks executed)*{reason_note}\n\n"
                     f"This thread will be locked and archived."
                 )
-                await asyncio.sleep(5)
-                try:
-                    await interaction.channel.edit(locked=True, archived=True)
-                except discord.HTTPException as exc:
-                    logger.debug("Failed to lock/archive thread after close: %s", exc)
+                await asyncio.sleep(1.5)
+                members_to_remove = []
+                if applicant_member:
+                    members_to_remove.append(applicant_member)
+                referrer_id = self.ticket.get("referrer_id")
+                if referrer_id and interaction.guild:
+                    ref_m = interaction.guild.get_member(referrer_id) or discord.Object(id=referrer_id)
+                    members_to_remove.append(ref_m)
+
+                res = self.guest_service.safe_close_and_archive_thread(
+                    interaction.channel,
+                    reason=f"TARVeri: Ticket manually closed by {interaction.user}",
+                    members_to_remove=members_to_remove,
+                )
+                if inspect.isawaitable(res):
+                    await res
         else:
             await interaction.followup.send(reply_msg, ephemeral=True)
 
@@ -840,11 +863,22 @@ class GuestReviewThreadView(discord.ui.View):
                 await interaction.channel.send(
                     f"🎉 **Application Approved by {interaction.user.mention}!** Double verification completed. This thread will be locked and archived."
                 )
-                await asyncio.sleep(5)
-                try:
-                    await interaction.channel.edit(locked=True, archived=True)
-                except discord.HTTPException as exc:
-                    logger.debug("Failed to lock/archive thread on approve: %s", exc)
+                await asyncio.sleep(1.5)
+                members_to_remove = []
+                if applicant_member:
+                    members_to_remove.append(applicant_member)
+                referrer_id = ticket.get("referrer_id")
+                if referrer_id and interaction.guild:
+                    ref_m = interaction.guild.get_member(referrer_id) or discord.Object(id=referrer_id)
+                    members_to_remove.append(ref_m)
+
+                res = self.guest_service.safe_close_and_archive_thread(
+                    interaction.channel,
+                    reason=f"TARVeri: Guest approved by {interaction.user}",
+                    members_to_remove=members_to_remove,
+                )
+                if inspect.isawaitable(res):
+                    await res
         else:
             await interaction.followup.send(msg, ephemeral=True)
             schedule_ttl_delete(interaction, delay=60.0)

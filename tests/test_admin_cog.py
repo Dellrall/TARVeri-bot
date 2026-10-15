@@ -649,7 +649,9 @@ async def test_admin_close_ticket_in_thread(tmp_path):
     guest_service.close_guest_ticket_manually.assert_called_once()
     thread.send.assert_called_once()
     assert "Ticket manually closed" in thread.send.call_args[0][0]
-    thread.edit.assert_called_once_with(locked=True, archived=True, reason=f"TARVeri: Ticket closed by {admin_user}")
+    guest_service.safe_close_and_archive_thread.assert_called_once_with(
+        thread, reason=f"TARVeri: Ticket closed by {admin_user}"
+    )
     interaction.followup.send.assert_called_once()
 
     await db.close()
@@ -783,8 +785,8 @@ async def test_admin_close_ticket_already_left_server_archives_unarchived_thread
 
     thread.send.assert_called_once()
     assert "Ticket thread archived" in thread.send.call_args[0][0]
-    thread.edit.assert_called_once_with(
-        locked=True, archived=True, reason=f"TARVeri: Archived by {admin_user} (status: LEFT_SERVER)"
+    guest_service.safe_close_and_archive_thread.assert_called_once_with(
+        thread, reason=f"TARVeri: Archived by {admin_user} (status: LEFT_SERVER)"
     )
     interaction.followup.send.assert_called_once()
     assert "Cleaned up and archived the thread" in interaction.followup.send.call_args[0][0]

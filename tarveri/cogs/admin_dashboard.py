@@ -1125,6 +1125,15 @@ class AdminDashboardView(ui.View):
         reconcile_stats = await self.cog.service.reconcile_verified_members(guild)
         alumni_stats = await self.cog.service.reconcile_alumni_members(guild)
 
+        guest_svc = getattr(self.cog.bot, "guest_service", None)
+        thread_stats = {"checked": 0, "archived": 0, "failed": 0}
+        if guest_svc and hasattr(guest_svc, "reconcile_resolved_ticket_threads"):
+            res = guest_svc.reconcile_resolved_ticket_threads(guild)
+            if inspect.isawaitable(res):
+                thread_stats = await res
+            elif isinstance(res, dict):
+                thread_stats = res
+
         embed = discord.Embed(
             title=f"🩺 Server Diagnostics & Self-Healing Results — {guild.name}",
             color=discord.Color.green() if not warnings else discord.Color.orange(),
@@ -1156,6 +1165,12 @@ class AdminDashboardView(ui.View):
             value=f"• Verified students: checked {reconcile_stats['checked']}, restored {reconcile_stats['restored']}\n• Alumni: checked {alumni_stats['checked']}, restored {alumni_stats['restored']}",
             inline=False,
         )
+        if thread_stats.get("archived", 0) > 0:
+            embed.add_field(
+                name="🧵 Review Thread Cleanup",
+                value=f"• Auto-archived **{thread_stats['archived']}** lingering resolved review thread(s)",
+                inline=False,
+            )
 
         await self.update_message(interaction, embed=embed)
 

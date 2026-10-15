@@ -302,6 +302,15 @@ class AdminCog(commands.Cog, name="Admin"):
         reconcile_stats = await self.service.reconcile_verified_members(guild)
         alumni_stats = await self.service.reconcile_alumni_members(guild)
 
+        guest_svc = getattr(self.bot, "guest_service", None)
+        thread_stats = {"checked": 0, "archived": 0, "failed": 0}
+        if guest_svc and hasattr(guest_svc, "reconcile_resolved_ticket_threads"):
+            res = guest_svc.reconcile_resolved_ticket_threads(guild)
+            if inspect.isawaitable(res):
+                thread_stats = await res
+            elif isinstance(res, dict):
+                thread_stats = res
+
         # Check channel configurations
         settings = await self.db.get_guild_settings(guild.id)
         w_id = settings[0] if settings else None
@@ -391,6 +400,13 @@ class AdminCog(commands.Cog, name="Admin"):
             ),
             inline=False,
         )
+
+        if thread_stats.get("archived", 0) > 0:
+            embed.add_field(
+                name="🧵 Review Thread Cleanup",
+                value=f"• Auto-archived **{thread_stats['archived']}** lingering resolved review thread(s)",
+                inline=False,
+            )
 
         embed.add_field(
             name="📡 Channel Configuration Health",
@@ -2121,8 +2137,15 @@ class AdminCog(commands.Cog, name="Admin"):
                     logger.debug("Failed updating starter message embed: %s", exc)
 
                 await asyncio.sleep(1)
-                try:
-                    if hasattr(thread, "edit"):
+                if hasattr(guest_svc, "safe_close_and_archive_thread"):
+                    res = guest_svc.safe_close_and_archive_thread(
+                        thread,
+                        reason=f"TARVeri: Archived by {interaction.user} (status: {status_str})",
+                    )
+                    if inspect.isawaitable(res):
+                        await res
+                elif hasattr(thread, "edit"):
+                    try:
                         res = thread.edit(
                             locked=True,
                             archived=True,
@@ -2130,8 +2153,8 @@ class AdminCog(commands.Cog, name="Admin"):
                         )
                         if inspect.isawaitable(res):
                             await res
-                except (discord.HTTPException, Exception) as exc:
-                    logger.debug("Failed locking/archiving thread: %s", exc)
+                    except Exception as exc:
+                        logger.warning("Failed locking/archiving thread: %s", exc)
 
                 if hasattr(guest_svc, "_cleanup_channel_overwrites"):
                     await guest_svc._cleanup_channel_overwrites(interaction.guild, ticket_data)
@@ -2203,16 +2226,23 @@ class AdminCog(commands.Cog, name="Admin"):
                 except Exception as exc:
                     logger.debug("Failed updating starter message embed: %s", exc)
 
-                await asyncio.sleep(2)
-                try:
-                    if hasattr(thread, "edit"):
+                await asyncio.sleep(1)
+                if hasattr(guest_svc, "safe_close_and_archive_thread"):
+                    res = guest_svc.safe_close_and_archive_thread(
+                        thread,
+                        reason=f"TARVeri: Ticket closed by {interaction.user}",
+                    )
+                    if inspect.isawaitable(res):
+                        await res
+                elif hasattr(thread, "edit"):
+                    try:
                         res = thread.edit(
                             locked=True, archived=True, reason=f"TARVeri: Ticket closed by {interaction.user}"
                         )
                         if inspect.isawaitable(res):
                             await res
-                except (discord.HTTPException, Exception) as exc:
-                    logger.debug("Failed locking/archiving thread: %s", exc)
+                    except Exception as exc:
+                        logger.warning("Failed locking/archiving thread: %s", exc)
 
             await interaction.followup.send(reply_msg, ephemeral=True)
         else:

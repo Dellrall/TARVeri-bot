@@ -980,7 +980,9 @@ async def test_reconcile_downtime_state_handles_manual_guest_grant(tmp_path):
 
     # Check thread was closed and archived
     thread.send.assert_awaited_once()
-    thread.edit.assert_awaited_once_with(archived=True, locked=True)
+    thread.edit.assert_awaited_once_with(
+        locked=True, archived=True, reason="TARVeri: Guest role was already granted to applicant"
+    )
 
     await db.close()
 
@@ -1169,3 +1171,222 @@ async def test_close_guest_ticket_manually_without_kicking(tmp_path):
     assert ref["status"] == "CLOSED"
 
     await db.close()
+
+
+@pytest.mark.asyncio
+async def test_safe_close_and_archive_thread_with_manage_threads(tmp_path):
+    db_path = str(tmp_path / "thread_close_success.db")
+    db = Database(db_path)
+    await db.connect()
+    try:
+        bot = MagicMock()
+        service = GuestService(bot, db)
+
+        guild = MagicMock(spec=discord.Guild)
+        guild.name = "Test Guild"
+        bot_member = MagicMock(spec=discord.Member)
+        guild.me = bot_member
+
+        thread = AsyncMock(spec=discord.Thread)
+        thread.guild = guild
+        thread.name = "guest-a0001-test"
+        thread.archived = False
+        thread.locked = False
+        thread.remove_user = AsyncMock()
+        thread.edit = AsyncMock()
+
+        # Bot has manage_threads permission
+        perms = MagicMock()
+        perms.manage_threads = True
+        thread.permissions_for.return_value = perms
+
+        applicant = MagicMock(spec=discord.Member)
+        applicant.id = 1111
+        referrer = MagicMock(spec=discord.Member)
+        referrer.id = 2222
+
+        locked_ok, archived_ok = await service.safe_close_and_archive_thread(
+            thread,
+            reason="TARVeri: Test close",
+            members_to_remove=[applicant, referrer],
+        )
+
+        assert locked_ok is True
+        assert archived_ok is True
+        assert thread.remove_user.await_count == 2
+        thread.edit.assert_awaited_once_with(locked=True, archived=True, reason="TARVeri: Test close")
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_safe_close_and_archive_thread_fallback_on_forbidden(tmp_path):
+    db_path = str(tmp_path / "thread_close_fallback.db")
+    db = Database(db_path)
+    await db.connect()
+    try:
+        bot = MagicMock()
+        service = GuestService(bot, db)
+
+        guild = MagicMock(spec=discord.Guild)
+        guild.name = "Test Guild"
+        bot_member = MagicMock(spec=discord.Member)
+        guild.me = bot_member
+
+        thread = AsyncMock(spec=discord.Thread)
+        thread.guild = guild
+        thread.name = "guest-a0002-test"
+        thread.archived = False
+        thread.locked = False
+        thread.remove_user = AsyncMock()
+
+        # Bot has manage_threads nominally, but Discord API returns Forbidden when locking
+        perms = MagicMock()
+        perms.manage_threads = True
+        thread.permissions_for.return_value = perms
+
+        edit_calls = []
+
+        async def fake_edit(*args, **kwargs):
+            edit_calls.append(kwargs)
+            if kwargs.get("locked"):
+                raise discord.Forbidden(MagicMock(), "Missing Permissions")
+            return None
+
+        thread.edit.side_effect = fake_edit
+
+        applicant = MagicMock(spec=discord.Member)
+        applicant.id = 1111
+
+        locked_ok, archived_ok = await service.safe_close_and_archive_thread(
+            thread,
+            reason="TARVeri: Test fallback",
+            members_to_remove=[applicant],
+        )
+
+        assert locked_ok is False
+        assert archived_ok is True
+        # First call was locked+archived, second call was fallback archived only
+        assert len(edit_calls) == 2
+        assert edit_calls[0] == {"locked": True, "archived": True, "reason": "TARVeri: Test fallback"}
+        assert edit_calls[1] == {"archived": True, "reason": "TARVeri: Test fallback"}
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_safe_close_and_archive_thread_unarchives_first_if_already_archived(tmp_path):
+    db_path = str(tmp_path / "thread_unarchive_first.db")
+    db = Database(db_path)
+    await db.connect()
+    try:
+        bot = MagicMock()
+        service = GuestService(bot, db)
+
+        guild = MagicMock(spec=discord.Guild)
+        guild.name = "Test Guild"
+        guild.me = MagicMock()
+
+        thread = AsyncMock(spec=discord.Thread)
+        thread.guild = guild
+        thread.name = "guest-a0003-test"
+        thread.archived = True
+        thread.locked = False
+
+        perms = MagicMock()
+        perms.manage_threads = True
+        thread.permissions_for.return_value = perms
+
+        edit_calls = []
+
+        async def fake_edit(*args, **kwargs):
+            edit_calls.append(kwargs)
+            return None
+
+        thread.edit.side_effect = fake_edit
+
+        locked_ok, archived_ok = await service.safe_close_and_archive_thread(thread)
+
+        assert locked_ok is True
+        assert archived_ok is True
+        assert len(edit_calls) == 2
+        assert edit_calls[0] == {"archived": False}
+        assert edit_calls[1] == {"locked": True, "archived": True, "reason": None}
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_resolved_ticket_threads(tmp_path):
+    db_path = str(tmp_path / "reconcile_threads.db")
+    db = Database(db_path)
+    await db.connect()
+    try:
+        bot = MagicMock()
+        service = GuestService(bot, db)
+
+        guild = MagicMock(spec=discord.Guild)
+        guild.id = 555666
+        guild.name = "Reconcile Guild"
+        guild.me = MagicMock()
+
+        # Create 1 OPEN ticket
+        await db.create_guest_ticket(guild_id=guild.id, applicant_id=10, channel_id=5001, reason="Open")
+        # Create 1 APPROVED ticket whose thread is active/unarchived
+        t_appr = await db.create_guest_ticket(guild_id=guild.id, applicant_id=11, channel_id=5002, reason="Approved")
+        await db.close_guest_ticket(t_appr, status="APPROVED", closed_by_admin_id=999)
+        # Create 1 REJECTED ticket whose thread is active/unarchived
+        t_rej = await db.create_guest_ticket(guild_id=guild.id, applicant_id=12, channel_id=5003, reason="Rejected")
+        await db.close_guest_ticket(t_rej, status="REJECTED", close_reason="Spam")
+        # Create 1 CLOSED ticket whose thread is ALREADY archived
+        t_cls = await db.create_guest_ticket(guild_id=guild.id, applicant_id=13, channel_id=5004, reason="Closed")
+        await db.close_guest_ticket(t_cls, status="CLOSED", close_reason="Duplicate")
+
+        # Mock threads
+        th_appr = AsyncMock(spec=discord.Thread)
+        th_appr.id = 5002
+        th_appr.name = "guest-a0001"
+        th_appr.archived = False
+        th_appr.locked = False
+        th_appr.guild = guild
+        th_appr.permissions_for.return_value.manage_threads = True
+
+        th_rej = AsyncMock(spec=discord.Thread)
+        th_rej.id = 5003
+        th_rej.name = "guest-a0002"
+        th_rej.archived = False
+        th_rej.locked = False
+        th_rej.guild = guild
+        th_rej.permissions_for.return_value.manage_threads = True
+
+        th_cls = AsyncMock(spec=discord.Thread)
+        th_cls.id = 5004
+        th_cls.name = "guest-a0003"
+        th_cls.archived = True  # Already archived!
+        th_cls.locked = True
+        th_cls.guild = guild
+
+        threads_map = {5002: th_appr, 5003: th_rej, 5004: th_cls}
+        guild.get_thread.side_effect = lambda tid: threads_map.get(tid)
+
+        stats = await service.reconcile_resolved_ticket_threads(guild, limit=10)
+
+        # 3 resolved tickets were checked in DB
+        assert stats["checked"] == 3
+        # 2 were unarchived and got archived
+        assert stats["archived"] == 2
+        assert stats["failed"] == 0
+
+        th_appr.edit.assert_awaited_once_with(
+            locked=True,
+            archived=True,
+            reason=f"TARVeri: Self-healing archived resolved ticket #{t_appr} (APPROVED)",
+        )
+        th_rej.edit.assert_awaited_once_with(
+            locked=True,
+            archived=True,
+            reason=f"TARVeri: Self-healing archived resolved ticket #{t_rej} (REJECTED)",
+        )
+        th_cls.edit.assert_not_called()
+    finally:
+        await db.close()

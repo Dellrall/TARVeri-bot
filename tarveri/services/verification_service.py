@@ -2559,6 +2559,18 @@ class VerificationService:
 
         if not bot_perms or not getattr(bot_perms, "manage_roles", False):
             warnings.append("❌ Missing `Manage Roles` permission — cannot create or assign faculty/guest roles.")
+        if not bot_perms or not (
+            getattr(bot_perms, "manage_threads", False) or getattr(bot_perms, "administrator", False)
+        ):
+            warnings.append(
+                "⚠️ Missing `Manage Threads` permission — cannot lock guest review threads upon approval or dismissal."
+            )
+        if not bot_perms or not (
+            getattr(bot_perms, "create_private_threads", False) or getattr(bot_perms, "administrator", False)
+        ):
+            warnings.append(
+                "❌ Missing `Create Private Threads` permission — cannot open private guest review tickets."
+            )
 
         guild_roles = getattr(guild, "roles", [])
         if not isinstance(guild_roles, (list, tuple)):

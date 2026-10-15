@@ -340,6 +340,8 @@ async def test_guest_review_thread_close_button_flow(tmp_path):
 
     channel = MagicMock(spec=discord.Thread)
     channel.id = 3322
+    channel.archived = False
+    channel.locked = False
     channel.send = AsyncMock()
     channel.edit = AsyncMock()
 
@@ -370,7 +372,9 @@ async def test_guest_review_thread_close_button_flow(tmp_path):
     channel.send.assert_called_once()
     assert "Ticket manually closed" in channel.send.call_args[0][0]
     assert "Duplicate ticket / Reconsidering later" in channel.send.call_args[0][0]
-    channel.edit.assert_awaited_once_with(locked=True, archived=True)
+    channel.edit.assert_awaited_once_with(
+        locked=True, archived=True, reason=f"TARVeri: Ticket manually closed by {admin_user}"
+    )
 
     # Verify applicant was NOT kicked or given role
     applicant.kick.assert_not_called()

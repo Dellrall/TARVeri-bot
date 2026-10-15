@@ -871,3 +871,53 @@ async def test_database_bounced_emails(tmp_path):
         assert await db.is_email_bounced(e_hash) is False
     finally:
         await db.close()
+
+
+@pytest.mark.asyncio
+async def test_get_resolved_guest_tickets(tmp_path):
+    db_file = str(tmp_path / "resolved_tickets_test.db")
+    db = Database(db_file)
+    await db.connect()
+    try:
+        guild_id = 998877
+        # Create OPEN ticket (not resolved)
+        await db.create_guest_ticket(guild_id=guild_id, applicant_id=101, channel_id=1001, reason="Open ticket")
+        # Create APPROVED ticket
+        t_appr = await db.create_guest_ticket(
+            guild_id=guild_id, applicant_id=102, channel_id=1002, reason="Approved ticket"
+        )
+        await db.close_guest_ticket(t_appr, status="APPROVED", closed_by_admin_id=999)
+
+        # Create REJECTED ticket
+        t_rej = await db.create_guest_ticket(
+            guild_id=guild_id, applicant_id=103, channel_id=1003, reason="Rejected ticket"
+        )
+        await db.close_guest_ticket(t_rej, status="REJECTED", close_reason="No valid student referrer")
+
+        # Create CLOSED ticket
+        t_cls = await db.create_guest_ticket(
+            guild_id=guild_id, applicant_id=104, channel_id=1004, reason="Closed ticket"
+        )
+        await db.close_guest_ticket(t_cls, status="CLOSED", close_reason="Duplicate")
+
+        # Create another guild's ticket
+        t_other = await db.create_guest_ticket(
+            guild_id=111222, applicant_id=105, channel_id=1005, reason="Other guild ticket"
+        )
+        await db.close_guest_ticket(t_other, status="APPROVED", closed_by_admin_id=999)
+
+        resolved = await db.get_resolved_guest_tickets(guild_id, limit=50)
+        assert len(resolved) == 3
+        statuses = {r["status"] for r in resolved}
+        assert statuses == {"APPROVED", "REJECTED", "CLOSED"}
+        channel_ids = [r["channel_id"] for r in resolved]
+        assert 1001 not in channel_ids  # Open ticket excluded
+        assert 1005 not in channel_ids  # Other guild excluded
+        assert channel_ids == [1004, 1003, 1002]  # Sorted DESC by ticket_id
+
+        # Test limit
+        limited = await db.get_resolved_guest_tickets(guild_id, limit=2)
+        assert len(limited) == 2
+        assert [r["channel_id"] for r in limited] == [1004, 1003]
+    finally:
+        await db.close()

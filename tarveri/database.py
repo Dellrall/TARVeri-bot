@@ -2056,6 +2056,22 @@ class Database:
         rows = await cursor.fetchall()
         return [self._row_to_ticket(r) for r in rows]
 
+    async def get_resolved_guest_tickets(self, guild_id: int, limit: int = 50) -> list[dict[str, Any]]:
+        """Returns recently resolved tickets (APPROVED, REJECTED, CLOSED) for a guild."""
+        if not self._conn:
+            raise RuntimeError("Database connection is not open.")
+        cursor = await self._conn.execute(
+            """SELECT ticket_id, guild_id, applicant_id, referrer_id, channel_id, referral_code,
+                      reason, vouch_note, vouched_by_id, vouched_at, status, created_at, closed_at,
+                      closed_by_admin_id, close_reason, ticket_seq, pinged_admin_ids, last_pinged_at
+               FROM guest_tickets
+               WHERE guild_id = ? AND status IN ('APPROVED', 'REJECTED', 'CLOSED')
+               ORDER BY ticket_id DESC LIMIT ?""",
+            (guild_id, limit),
+        )
+        rows = await cursor.fetchall()
+        return [self._row_to_ticket(r) for r in rows]
+
     async def cleanup_expired_referrals(self) -> int:
         """Bulk updates all expired active referral codes to EXPIRED status."""
         if not self._conn:

@@ -546,6 +546,48 @@ def test_diagnose_guild_permissions_hierarchy_and_permissions(tmp_path):
     assert any("Duplicate faculty roles detected" in w and "FOCS" in w for w in warnings)
 
 
+def test_diagnose_guild_permissions_thread_permissions():
+    bot = MagicMock()
+    db = MagicMock()
+    rate_limiter = RateLimiter()
+    service = VerificationService(bot, db, "secret_123", rate_limiter)
+
+    guild = MagicMock(spec=discord.Guild)
+    guild.name = "Thread Perms Guild"
+    guild.roles = []
+    guild.me = MagicMock()
+    bot_top_role = MagicMock()
+    bot_top_role.position = 100
+    guild.me.top_role = bot_top_role
+    guild.me.guild_permissions.manage_roles = True
+    guild.me.guild_permissions.administrator = False
+
+    # Missing Manage Threads permission
+    guild.me.guild_permissions.manage_threads = False
+    guild.me.guild_permissions.create_private_threads = True
+    warnings = service.diagnose_guild_permissions(guild)
+    assert any("Manage Threads" in w for w in warnings)
+
+    # Missing Create Private Threads permission
+    guild.me.guild_permissions.manage_threads = True
+    guild.me.guild_permissions.create_private_threads = False
+    warnings = service.diagnose_guild_permissions(guild)
+    assert any("Create Private Threads" in w for w in warnings)
+
+    # Both missing
+    guild.me.guild_permissions.manage_threads = False
+    guild.me.guild_permissions.create_private_threads = False
+    warnings = service.diagnose_guild_permissions(guild)
+    assert any("Manage Threads" in w for w in warnings)
+    assert any("Create Private Threads" in w for w in warnings)
+
+    # Both present
+    guild.me.guild_permissions.manage_threads = True
+    guild.me.guild_permissions.create_private_threads = True
+    warnings = service.diagnose_guild_permissions(guild)
+    assert warnings == []
+
+
 @pytest.mark.asyncio
 async def test_find_faculty_role_multi_tier_matching():
     bot = MagicMock()

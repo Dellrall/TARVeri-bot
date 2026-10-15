@@ -1087,6 +1087,143 @@ class GuestService:
                 return None
         return None
 
+    async def safe_close_and_archive_thread(
+        self,
+        thread: discord.Thread | Any,
+        reason: str | None = None,
+        members_to_remove: Sequence[Any] | None = None,
+    ) -> tuple[bool, bool]:
+        """
+        Safely locks and archives a Discord thread with fallback resilience.
+        Returns a tuple of (locked_success: bool, archived_success: bool).
+
+        Guarantees:
+        1. Removes non-admin members (applicant/referrer) from private threads first to prevent them from re-opening.
+        2. Proactively checks if the bot possesses 'Manage Threads' in the thread's permission context.
+        3. If 'Manage Threads' is present, attempts combined locked=True and archived=True.
+        4. If locking fails with 403 Forbidden, logs a prominent WARNING advising the admin to grant 'Manage Threads',
+           and immediately falls back to archiving without lock.
+        5. If the thread was already archived, unarchives it before locking to avoid Discord API 50083 error.
+        """
+        if not thread:
+            return False, False
+
+        guild = getattr(thread, "guild", None)
+        guild_name = getattr(guild, "name", "Unknown Server")
+        thread_name = getattr(thread, "name", str(getattr(thread, "id", "unknown")))
+        locked_ok = False
+        archived_ok = False
+
+        # 1. Remove non-admin members from private thread if requested
+        if members_to_remove and hasattr(thread, "remove_user"):
+            for m in members_to_remove:
+                if not m:
+                    continue
+                try:
+                    res = thread.remove_user(m)
+                    if inspect.isawaitable(res):
+                        await res
+                except Exception as exc:
+                    logger.debug("Could not remove user %s from thread %s: %s", getattr(m, "id", m), thread_name, exc)
+
+        # 2. Check if bot has Manage Threads in this thread/parent channel
+        bot_member = getattr(guild, "me", None)
+        has_manage_threads = False
+        if bot_member and hasattr(thread, "permissions_for"):
+            try:
+                perms = thread.permissions_for(bot_member)
+                has_manage_threads = getattr(perms, "manage_threads", False) or getattr(perms, "administrator", False)
+            except Exception:
+                has_manage_threads = True  # If permissions cannot be resolved, attempt lock anyway
+        else:
+            has_manage_threads = True
+
+        # 3. If already archived, unarchive temporarily before locking
+        if getattr(thread, "archived", False) is True and hasattr(thread, "edit"):
+            try:
+                res = thread.edit(archived=False)
+                if inspect.isawaitable(res):
+                    await res
+            except Exception as e:
+                logger.debug("[%s] Could not unarchive thread '%s' before lock: %s", guild_name, thread_name, e)
+
+        # 4. Attempt combined lock and archive if bot has Manage Threads
+        if has_manage_threads and hasattr(thread, "edit"):
+            try:
+                res = thread.edit(locked=True, archived=True, reason=reason)
+                if inspect.isawaitable(res):
+                    await res
+                locked_ok = True
+                archived_ok = True
+                logger.info("[%s] Successfully locked and archived review thread '%s'.", guild_name, thread_name)
+                return locked_ok, archived_ok
+            except discord.Forbidden:
+                logger.warning(
+                    "[%s] Bot lacks 'Manage Threads' permission to lock thread '%s' (ID: %s). "
+                    "Falling back to archiving without lock. Please grant 'Manage Threads' permission to the bot role in Server Settings > Roles.",
+                    guild_name,
+                    thread_name,
+                    getattr(thread, "id", "unknown"),
+                )
+            except (discord.HTTPException, Exception) as exc:
+                logger.warning("[%s] Failed combined lock+archive on thread '%s': %s", guild_name, thread_name, exc)
+        elif hasattr(thread, "edit"):
+            parent_name = getattr(getattr(thread, "parent", None), "name", "channel")
+            logger.warning(
+                "[%s] Bot lacks 'Manage Threads' permission in #%s (Thread: '%s'). "
+                "Thread will be archived without lock. To enable locking, grant 'Manage Threads' permission in Server Settings > Roles.",
+                guild_name,
+                parent_name,
+                thread_name,
+            )
+
+        # 5. Fallback: Archive without lock (thread creator can always archive their own thread)
+        if hasattr(thread, "edit"):
+            try:
+                res = thread.edit(archived=True, reason=reason)
+                if inspect.isawaitable(res):
+                    await res
+                archived_ok = True
+                logger.info("[%s] Successfully archived review thread '%s' (unlocked).", guild_name, thread_name)
+            except (discord.Forbidden, discord.HTTPException, Exception) as exc:
+                logger.error("[%s] Failed to archive thread '%s': %s", guild_name, thread_name, exc)
+
+        return locked_ok, archived_ok
+
+    async def reconcile_resolved_ticket_threads(self, guild: discord.Guild, limit: int = 50) -> dict[str, int]:
+        """
+        Self-healing: Finds recently resolved tickets (APPROVED, REJECTED, CLOSED) whose Discord threads
+        are still active/unarchived, and locks/archives them.
+        """
+        stats = {"checked": 0, "archived": 0, "failed": 0}
+        if not guild or not hasattr(guild, "id"):
+            return stats
+
+        if hasattr(self.db, "get_resolved_guest_tickets"):
+            resolved_tickets = await self.db.get_resolved_guest_tickets(guild.id, limit=limit)
+        else:
+            resolved_tickets = []
+
+        for t in resolved_tickets:
+            channel_id = t.get("channel_id")
+            if not channel_id:
+                continue
+            stats["checked"] += 1
+            thread = await self._get_or_fetch_thread(guild, channel_id)
+            if thread and not getattr(thread, "archived", False):
+                seq_code = t.get("ticket_seq", t["ticket_id"])
+                status_str = t.get("status", "RESOLVED")
+                _, archived_ok = await self.safe_close_and_archive_thread(
+                    thread,
+                    reason=f"TARVeri: Self-healing archived resolved ticket #{seq_code} ({status_str})",
+                )
+                if archived_ok:
+                    stats["archived"] += 1
+                else:
+                    stats["failed"] += 1
+
+        return stats
+
     async def _cleanup_channel_overwrites(self, guild: discord.Guild, ticket: dict[str, Any]) -> None:
         """Cleans up temporary channel permission overwrites granted to applicant/referrer."""
         channel_id = ticket.get("channel_id")
@@ -1168,10 +1305,7 @@ class GuestService:
                     except Exception as exc:
                         logger.debug("Failed updating applicant review message: %s", exc)
 
-                    try:
-                        await thread.edit(archived=True, locked=True, reason=f"TARVeri: Applicant {reason_msg} server")
-                    except (discord.HTTPException, discord.Forbidden):
-                        pass
+                    await self.safe_close_and_archive_thread(thread, reason=f"TARVeri: Applicant {reason_msg} server")
 
                 await self._cleanup_channel_overwrites(guild, open_applicant_ticket)
 
@@ -1204,12 +1338,9 @@ class GuestService:
                         except Exception as exc:
                             logger.debug("Failed updating referrer review message: %s", exc)
 
-                        try:
-                            await thread.edit(
-                                archived=True, locked=True, reason=f"TARVeri: Referrer {reason_msg} server"
-                            )
-                        except (discord.HTTPException, discord.Forbidden):
-                            pass
+                        await self.safe_close_and_archive_thread(
+                            thread, reason=f"TARVeri: Referrer {reason_msg} server"
+                        )
 
                     await self._cleanup_channel_overwrites(guild, t)
         except Exception as e:
@@ -1294,9 +1425,12 @@ class GuestService:
                         await thread.send(
                             "🛑 **Guest applicant left or was removed from server during maintenance.** Thread archived."
                         )
-                        await thread.edit(archived=True, locked=True)
                     except (discord.HTTPException, discord.Forbidden):
                         pass
+                    await self.safe_close_and_archive_thread(
+                        thread,
+                        reason="TARVeri: Guest applicant left or was removed from server during maintenance",
+                    )
                 continue
 
             # Check if applicant was manually granted the guest role by an admin during downtime
@@ -1324,9 +1458,12 @@ class GuestService:
                         await thread.send(
                             "✅ **Guest role was already granted to applicant.** Review ticket auto-resolved."
                         )
-                        await thread.edit(archived=True, locked=True)
                     except (discord.HTTPException, discord.Forbidden):
                         pass
+                    await self.safe_close_and_archive_thread(
+                        thread,
+                        reason="TARVeri: Guest role was already granted to applicant",
+                    )
 
                 await self.db.log(
                     "INFO",
@@ -1366,9 +1503,12 @@ class GuestService:
                             await thread.send(
                                 "🛑 **Referring student left or was removed from server during maintenance.** Application cancelled."
                             )
-                            await thread.edit(archived=True, locked=True)
                         except (discord.HTTPException, discord.Forbidden):
                             pass
+                        await self.safe_close_and_archive_thread(
+                            thread,
+                            reason="TARVeri: Referring student left or was removed from server during maintenance",
+                        )
                     continue
 
             # Check if thread was deleted during maintenance
