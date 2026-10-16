@@ -10,7 +10,6 @@ import hmac
 import logging
 import os
 import re
-import shutil
 import sys
 import unicodedata
 import zoneinfo
@@ -830,32 +829,27 @@ class DailyRotatingFileHandler(logging.Handler):
 
 class ConsoleAwareStreamHandler(logging.StreamHandler):
     """
-    StreamHandler that routes background logs into a pinned upper scrolling viewport
-    above the fixed bottom prompt bar using DECSTBM ANSI margins.
+    StreamHandler that writes logs cleanly without disrupting active console
+    prompt keystrokes, using line-clearing carriage return and readline redisplay.
+    Preserves 100% of terminal and tmux scrollback history.
     """
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
             msg = self.format(record)
             stream = self.stream or sys.stdout
-            is_tty = hasattr(stream, "isatty") and stream.isatty()
-            if is_tty:
-                _, rows = shutil.get_terminal_size()
-                if rows > 4:
-                    # Save cursor, jump to bottom of scrolling viewport, print log, restore cursor
-                    stream.write(f"\033[s\033[{rows - 2};1H\n{msg}\033[u")
-                    stream.flush()
-                    try:
-                        import readline
+            if hasattr(stream, "isatty") and stream.isatty():
+                stream.write(f"\r\033[K{msg}\n")
+                stream.flush()
+                try:
+                    import readline
 
-                        readline.redisplay()
-                    except Exception as exc:
-                        logger.debug("Readline redisplay skipped: %s", exc)
-                    return
-
-            # Fallback for non-TTY or small window
-            stream.write(f"\r\033[K{msg}\n" if is_tty else f"{msg}\n")
-            stream.flush()
+                    readline.redisplay()
+                except Exception as exc:
+                    logger.debug("Readline redisplay skipped: %s", exc)
+            else:
+                stream.write(f"{msg}\n")
+                stream.flush()
         except Exception:
             self.handleError(record)
 

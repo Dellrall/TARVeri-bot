@@ -140,3 +140,20 @@ async def test_console_service_stop_command(mock_bot, mock_service, tmp_path):
     await console.handle_command("stop")
     assert mock_bot.close.called
     await db.close()
+
+
+@pytest.mark.asyncio
+async def test_console_service_clear_command(mock_bot, mock_service, tmp_path):
+    db = Database(str(tmp_path / "test.db"))
+    await db.connect()
+    settings = Settings(bot_token="test", id_hash_secret="secret123")
+
+    console = ConsoleService(mock_bot, db, mock_service, settings)
+    mock_stdout = MagicMock()
+    mock_stdout.isatty.return_value = True
+
+    with patch("sys.stdout", mock_stdout):
+        await console.handle_command("clear")
+        mock_stdout.write.assert_called_with("\033[2J\033[H")
+
+    await db.close()
