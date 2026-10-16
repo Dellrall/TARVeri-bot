@@ -98,6 +98,10 @@ class UptimeService:
     def current_uptime_str(self) -> str:
         return format_duration_seconds(self.current_uptime_seconds)
 
+    def get_uptime_seconds(self) -> float:
+        """Alias helper for retrieving current uptime seconds."""
+        return self.current_uptime_seconds
+
     async def start(self) -> None:
         """
         Initializes the uptime tracker:

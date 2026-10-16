@@ -833,10 +833,22 @@ class ConsoleService:
 
         uptime_str = "N/A"
         if hasattr(self.bot, "uptime_service") and self.bot.uptime_service:
-            sec = int(self.bot.uptime_service.get_uptime_seconds())
-            hours, rem = divmod(sec, 3600)
-            mins, secs = divmod(rem, 60)
-            uptime_str = f"{hours}h {mins}m {secs}s"
+            try:
+                ups = self.bot.uptime_service
+                if hasattr(ups, "current_uptime_str") and ups.current_uptime_str:
+                    uptime_str = ups.current_uptime_str
+                elif hasattr(ups, "current_uptime_seconds"):
+                    sec = int(ups.current_uptime_seconds)
+                    hours, rem = divmod(sec, 3600)
+                    mins, secs = divmod(rem, 60)
+                    uptime_str = f"{hours}h {mins}m {secs}s"
+                elif hasattr(ups, "get_uptime_seconds"):
+                    sec = int(ups.get_uptime_seconds())
+                    hours, rem = divmod(sec, 3600)
+                    mins, secs = divmod(rem, 60)
+                    uptime_str = f"{hours}h {mins}m {secs}s"
+            except Exception as exc:
+                logger.debug("Failed computing uptime string: %s", exc)
 
         usr_tag = str(self.bot.user) if self.bot.user else "N/A"
         usr_id = self.bot.user.id if self.bot.user else "N/A"

@@ -64,6 +64,9 @@ async def test_console_service_status_command(mock_bot, mock_service, tmp_path):
     console.is_authenticated = True
     console.authenticated_user = "admin"
 
+    mock_bot.uptime_service = MagicMock()
+    mock_bot.uptime_service.current_uptime_str = "1h 23m 45s"
+
     captured_out = io.StringIO()
     with patch("sys.stdout", captured_out):
         await console.handle_command("status")
@@ -71,6 +74,7 @@ async def test_console_service_status_command(mock_bot, mock_service, tmp_path):
     output = captured_out.getvalue()
     assert "Bot User: TARVeri#0001" in output
     assert "WebSocket Ping: 42.0 ms" in output
+    assert "Continuous Uptime: 1h 23m 45s" in output
     await db.close()
 
 
