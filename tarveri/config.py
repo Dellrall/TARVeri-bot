@@ -10,6 +10,7 @@ import hmac
 import logging
 import os
 import re
+import sys
 import unicodedata
 import zoneinfo
 from dataclasses import dataclass
@@ -20,6 +21,8 @@ from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger("tarveri")
 
 # Faculty code mapping (index 3 of student ID) -> Role Name
 FACULTY_ROLES: Final[dict[str, str]] = {
@@ -824,6 +827,29 @@ class DailyRotatingFileHandler(logging.Handler):
             self.release()
 
 
+class ConsoleAwareStreamHandler(logging.StreamHandler):
+    """
+    StreamHandler that integrates with GNU readline to preserve an interactive
+    terminal prompt while streaming background logs in real-time.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            stream = self.stream or sys.stdout
+            # Clear current line before emitting log message
+            stream.write(f"\r\033[K{msg}\n")
+            try:
+                import readline
+
+                readline.redisplay()
+            except Exception as exc:
+                logger.debug("Readline redisplay skipped: %s", exc)
+            stream.flush()
+        except Exception:
+            self.handleError(record)
+
+
 def setup_logger(
     log_file: str = "tarveri.log",
     max_bytes: int = 2_000_000,
@@ -866,7 +892,7 @@ def setup_logger(
     )
     file_handler.setFormatter(formatter)
 
-    console_handler = logging.StreamHandler()
+    console_handler = ConsoleAwareStreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
 
     logger.addHandler(file_handler)

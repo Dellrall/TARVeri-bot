@@ -5,7 +5,6 @@ Tests for TARVeri Interactive Minecraft-style Console CLI Service.
 from __future__ import annotations
 
 import io
-import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest

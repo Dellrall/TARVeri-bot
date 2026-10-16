@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import shlex
 import sys
 import threading
@@ -27,6 +26,31 @@ if TYPE_CHECKING:
     from tarveri.services.verification_service import VerificationService
 
 logger = logging.getLogger("tarveri.console")
+
+
+AVAILABLE_COMMANDS = [
+    "help",
+    "status",
+    "guilds",
+    "stats",
+    "lookup",
+    "verify",
+    "unverify",
+    "backup",
+    "say",
+    "broadcast",
+    "eval",
+    "stop",
+    "exit",
+    "quit",
+]
+
+
+def _console_completer(text: str, state: int) -> str | None:
+    options = [c for c in AVAILABLE_COMMANDS if c.startswith(text.lower())]
+    if state < len(options):
+        return options[state]
+    return None
 
 
 class ConsoleService:
@@ -59,6 +83,15 @@ class ConsoleService:
             logger.info("[Console] Non-interactive environment detected (systemd/pipe). Terminal CLI disabled.")
             return
 
+        # Configure tab-completion and GNU readline
+        try:
+            import readline
+
+            readline.set_completer(_console_completer)
+            readline.parse_and_bind("tab: complete")
+        except Exception as exc:
+            logger.debug("Readline binding skipped: %s", exc)
+
         self.running = True
         self._loop = asyncio.get_running_loop()
         self._thread = threading.Thread(
@@ -69,34 +102,20 @@ class ConsoleService:
         self._thread.start()
         print("\n" + "=" * 60)
         print("🎮 TARVeri Minecraft-style Console CLI initialized!")
-        print("Type 'help' or '?' for available console commands.")
+        print("Type 'help' or '?' for available console commands (Tab autocomplete supported).")
         print("=" * 60 + "\n")
-        self._print_prompt()
 
     def stop(self) -> None:
         """Flags the console thread to stop."""
         self.running = False
 
-    def _print_prompt(self) -> None:
-        try:
-            sys.stdout.write(f"\r{self.prompt}")
-            sys.stdout.flush()
-        except Exception:
-            pass
-
     def _reader_loop(self) -> None:
-        """Runs in a daemon thread, reading stdin line by line."""
+        """Runs in a daemon thread, reading stdin line by line with GNU readline support."""
         while self.running:
             try:
-                line = sys.stdin.readline()
-                if not line:
-                    # Received EOF (Ctrl+D or closed stdin)
-                    logger.info("[Console] EOF received on stdin. Terminal CLI stopped.")
-                    break
-
+                line = input(self.prompt)
                 cleaned = line.strip()
                 if not cleaned:
-                    self._print_prompt()
                     continue
 
                 if self._loop and self._loop.is_running():
@@ -110,8 +129,9 @@ class ConsoleService:
                         print(f"\n[ERROR] Command failed: {e}")
                 else:
                     break
-
-                self._print_prompt()
+            except (EOFError, KeyboardInterrupt):
+                logger.info("[Console] EOF/Interrupt received. Terminal CLI stopped.")
+                break
             except Exception as e:
                 logger.debug(f"[Console] Error reading stdin: {e}")
                 break
@@ -188,7 +208,7 @@ class ConsoleService:
         latency_ms = round(self.bot.latency * 1000, 1) if self.bot.latency else 0
         guilds_count = len(self.bot.guilds)
         total_members = sum(g.member_count or 0 for g in self.bot.guilds)
-        
+
         # Memory usage
         mem_mb = 0.0
         try:
@@ -196,8 +216,8 @@ class ConsoleService:
             usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
             # On Linux ru_maxrss is in KiB
             mem_mb = round(usage / 1024, 2)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Resource usage retrieval skipped: %s", exc)
 
         uptime_str = "N/A"
         if hasattr(self.bot, "uptime_service") and self.bot.uptime_service:
@@ -229,8 +249,8 @@ class ConsoleService:
             alumni = await self.db.get_total_alumni()
             active_students = total - alumni
             faculty_counts = await self.db.get_verifications_count_by_faculty()
-            
-            print(f"\n--- Verification Statistics ---")
+
+            print("\n--- Verification Statistics ---")
             print(f"• Total Verified Records: {total}")
             print(f"• Active Students:        {active_students}")
             print(f"• Verified Alumni:        {alumni}")
