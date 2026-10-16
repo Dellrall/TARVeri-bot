@@ -477,6 +477,7 @@ class Settings:
     dlq_retry_interval_seconds: int = 60
     dlq_max_retries: int = 5
     dlq_purge_days: int = 30
+    enable_console: bool = True
 
     @property
     def restrict_smtp_usage(self) -> bool:
@@ -645,6 +646,7 @@ class Settings:
         )
         dlq_max_retries = _env_int("TARVERI_DLQ_MAX_RETRIES", "DLQ_MAX_RETRIES", default=5)
         dlq_purge_days = _env_int("TARVERI_DLQ_PURGE_DAYS", "DLQ_PURGE_DAYS", default=30)
+        enable_console = _env_bool("TARVERI_ENABLE_CONSOLE", "ENABLE_CONSOLE", default=True)
 
         if validate:
             if not bot_token:
@@ -718,6 +720,7 @@ class Settings:
             dlq_retry_interval_seconds=dlq_retry_interval_seconds,
             dlq_max_retries=dlq_max_retries,
             dlq_purge_days=dlq_purge_days,
+            enable_console=enable_console,
         )
 
 

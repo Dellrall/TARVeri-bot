@@ -30,6 +30,7 @@ from tarveri.config import Settings, setup_logger
 from tarveri.database import Database
 from tarveri.rate_limiter import RateLimiter
 from tarveri.services.card_service import CardService
+from tarveri.services.console_service import ConsoleService
 from tarveri.services.dead_letter_service import DeadLetterQueueService
 from tarveri.services.email_service import EmailService
 from tarveri.services.graduation_watchdog_service import GraduationWatchdogService
@@ -151,6 +152,13 @@ class TARVeriBot(commands.Bot):
             self.email_service.dlq_service = self.dead_letter_service
         if self.outage_service:
             self.outage_service.dlq_service = self.dead_letter_service
+
+        self.console_service = ConsoleService(
+            bot=self,
+            db=self.db,
+            service=self.service,
+            settings=self.settings,
+        )
 
         self._is_ready_logged = False
         self._cmd_sync_task: asyncio.Task[None] | None = None
@@ -281,6 +289,10 @@ class TARVeriBot(commands.Bot):
             )
             logger.info(f"TARVeri ready: Logged in as {self.user} (ID: {self.user.id}) | Servers: {len(self.guilds)}")
 
+            # Start interactive Minecraft-style console CLI
+            if self.console_service:
+                self.console_service.start()
+
             # Run startup diagnostics and self-healing across connected guilds
             async def _startup_self_healing() -> None:
                 try:
@@ -319,6 +331,9 @@ class TARVeriBot(commands.Bot):
 
         if self._cmd_sync_task and not self._cmd_sync_task.done():
             self._cmd_sync_task.cancel()
+
+        if getattr(self, "console_service", None):
+            self.console_service.stop()
 
         if self.outage_service:
             self.outage_service.stop()
