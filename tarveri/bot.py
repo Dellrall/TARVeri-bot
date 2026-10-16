@@ -7,7 +7,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import os
 import signal
+import sys
 from typing import Any
 
 import aiohttp
@@ -455,7 +457,19 @@ async def run_bot(settings: Settings | None = None) -> None:
                     bot.outage_service.on_power_signal(sig_name)
             else:
                 logger.info(f"Signal {sig_name} received. Closing TARVeri gracefully...")
-            asyncio.create_task(bot.close())
+
+            async def _graceful_close() -> None:
+                try:
+                    await asyncio.wait_for(bot.close(), timeout=5.0)
+                except Exception as e:
+                    logger.warning(f"Error during shutdown: {e}")
+                finally:
+                    loop.call_soon(sys.exit, 0)
+
+            asyncio.create_task(_graceful_close())
+        else:
+            logger.warning("Repeated signal received. Forcing immediate termination.")
+            os._exit(1)
 
     signals_to_handle = [signal.SIGINT, signal.SIGTERM]
     if hasattr(signal, "SIGHUP"):

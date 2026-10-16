@@ -685,12 +685,10 @@ class ConsoleService:
     async def _cmd_stop(self) -> None:
         self.write_output("[INFO] Shutting down bot gracefully from console...")
         self.stop()
-        await self.bot.close()
-        if self._loop and self._loop.is_running() and "pytest" not in sys.modules:
-            try:
-                import os
-                import signal
-
-                os.kill(os.getpid(), signal.SIGINT)
-            except Exception:
-                sys.exit(0)
+        try:
+            await asyncio.wait_for(self.bot.close(), timeout=5.0)
+        except Exception as e:
+            logger.warning("Error during bot shutdown: %s", e)
+        finally:
+            if self._loop and self._loop.is_running() and "pytest" not in sys.modules:
+                self._loop.call_soon(sys.exit, 0)
