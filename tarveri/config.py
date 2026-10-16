@@ -10,6 +10,7 @@ import hmac
 import logging
 import os
 import re
+import unicodedata
 import zoneinfo
 from dataclasses import dataclass
 from datetime import UTC, datetime, timezone
@@ -963,7 +964,9 @@ def parse_student_id(raw_id: str) -> StudentIdInfo:
     - Programme Code (characters 2..4, e.g. 'WMR')
     - Registration Sequence (digits 5..9, e.g. '12331')
     """
-    normalized = raw_id.strip().upper().replace("-", "").replace(" ", "")
+    # Normalize full-width characters (IME) and strip zero-width/whitespace characters
+    norm_text = unicodedata.normalize("NFKC", raw_id or "")
+    normalized = re.sub(r"[\s\u200b\u200c\u200d\ufeff\xa0\-]+", "", norm_text).upper()
     if not STUDENT_ID_PATTERN.match(normalized):
         return StudentIdInfo(
             is_valid=False,
@@ -1078,7 +1081,11 @@ def parse_card_expiry_date(raw_date: str | None) -> str | None:
     if not raw_date:
         return None
 
-    cleaned = raw_date.strip().upper()
+    # Strip zero-width/non-breaking spaces, normalize full-width unicode (IME), and trim spaces around delimiters
+    pre_clean = re.sub(r"[\u200b\u200c\u200d\ufeff\xa0]", "", str(raw_date))
+    norm_text = unicodedata.normalize("NFKC", pre_clean)
+    cleaned = norm_text.strip().upper()
+    cleaned = re.sub(r"\s*([/\-\.])\s*", r"\1", cleaned)
     if not cleaned:
         return None
 

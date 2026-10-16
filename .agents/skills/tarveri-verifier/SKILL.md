@@ -18,28 +18,48 @@ Student-verifier/
 │   ├── __main__.py               # python -m tarveri entrypoint
 │   ├── bot.py                    # TARVeriBot lifecycle, persistent views, startup self-healing
 │   ├── config.py                 # Settings, faculty mappings, programme code extraction, NDR bounce detection, HMAC hashing
-│   ├── database.py               # Async SQLite layer (WAL mode, PRAGMAs, migrations, bounced_emails table, legacy backfill)
+│   ├── database.py               # Database façade inheriting modular repositories (WAL mode, PRAGMAs, migrations)
 │   ├── rate_limiter.py           # Monotonic sliding-window rate limiting
 │   ├── utils.py                  # Ticket formatting (#A0001), TTL schedulers, timestamp parsers
+│   ├── db/                       # Modular domain repository mixins
+│   │   ├── base.py               # DatabaseBase with transaction management and PRAGMA configuration
+│   │   ├── verification_repo.py  # Student profiles, transitions, and alumni persistence
+│   │   ├── guest_repo.py         # Guest review tickets, referral codes, and vouch persistence
+│   │   ├── settings_repo.py      # Guild configurations, toggle settings, and admin channels
+│   │   ├── blacklist_repo.py     # Multi-vector server blacklist management
+│   │   ├── mass_action_repo.py   # High-impact mass action snapshots and restoration states
+│   │   ├── uptime_repo.py        # Heartbeat tracking, uptime sessions, and incident history
+│   │   └── dlq_repo.py           # Dead letter queue payload persistence and retry counters
 │   ├── services/
-│   │   ├── verification_service.py      # Student verification logic, role auto-creation, reconciliation, role recovery, mass action guards
-│   │   ├── email_service.py             # Institutional student email OTP generator, dual SMTP relay, NDR bounce detection, and Fernet authenticated encryption
+│   │   ├── verification_service.py # VerificationService façade composed of domain mixins
+│   │   ├── verification/         # Verification domain mixins
+│   │   │   ├── base.py           # Base verification service dependencies
+│   │   │   ├── role_mixin.py     # Faculty and academic level role provisioning
+│   │   │   ├── reconciliation_mixin.py # Join sync, mutual server sync, and role recovery
+│   │   │   ├── moderation_mixin.py     # Student unverification and alumni revocation
+│   │   │   └── lifecycle_mixin.py      # Expiry prompts, card dates, and alumni gates
+│   │   ├── dead_letter_service.py # Asynchronous dead letter queue worker with exponential backoff
+│   │   ├── email_service.py      # Institutional student email OTP generator, dual SMTP relay, NDR bounce detection
 │   │   ├── graduation_watchdog_service.py # Periodic graduation & card expiry watchdog daemon
-│   │   ├── card_service.py              # Digital campus card rendering, Pillow glassmorphism, badge system
-│   │   ├── guest_service.py             # Referral codes, double verification, batch staff tagging, escalation
-│   │   ├── log_service.py               # Daily log rotation, 10-day period grouping & .tar.gz compression
-│   │   ├── outage_service.py            # Network probe watchdog, debounce & power outage signals
-│   │   └── update_checker.py            # Background git upstream check and DM notifications
+│   │   ├── card_service.py       # Digital campus card rendering, Pillow glassmorphism, badge system
+│   │   ├── guest_service.py      # Referral codes, double verification, batch staff tagging, escalation
+│   │   ├── log_service.py        # Daily log rotation, 10-day period grouping & .tar.gz compression
+│   │   ├── outage_service.py     # Network probe watchdog, debounce & power outage signals
+│   │   └── update_checker.py     # Background git upstream check and DM notifications
+│   ├── views/                    # Extracted Discord UI Modals and Views
+│   │   ├── verification_views.py # Verification modals, OTP prompts, and alumni confirmation views
+│   │   ├── guest_views.py        # Guest gateway panel, application modals, and private review thread views
+│   │   └── admin_views.py        # High-impact mass action confirmation and rollback views
 │   └── cogs/
-│       ├── verification_cog.py   # Student slash (/verify, /graduate) and text commands, welcome/help auto-tips, lifecycle UI
+│       ├── verification_cog.py   # Student slash (/verify, /graduate, /otp) commands and lifecycle listeners
 │       ├── card_cog.py           # Campus card slash (/card) and user context menu apps
-│       ├── guest_cog.py          # Guest gateway panel, private review thread views, vouchers
+│       ├── guest_cog.py          # Guest gateway panel command and thread review integration
 │       ├── admin_dashboard.py    # Rich interactive admin control center UI with category dropdowns
-│       └── admin_cog.py          # Admin tools (/stats, /diagnose, /audit, /unverify, /backup, /logs, /backfill_roles, /restore_roles)
+│       └── admin_cog.py          # Admin tools (/stats, /diagnose, /audit, /unverify, /backup, /logs, /uptime)
 ├── scripts/
 │   ├── update.sh                 # Safe upstream git updater with backup and test preflight
 │   └── show_servers.py           # CLI database inspector for server settings and metrics
-└── tests/                        # 235 unit & integration tests covering all modules with 0 warnings
+└── tests/                        # 269 unit & integration tests across 24 test suites with 0 warnings
 ```
 
 ---

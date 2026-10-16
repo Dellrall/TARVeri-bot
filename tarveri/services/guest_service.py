@@ -906,6 +906,7 @@ class GuestService:
         # 1. Assign Guest Role
         guest_role = await self.get_or_create_guest_role(guild)
         if not guest_role:
+            await self.db.reopen_guest_ticket(ticket_id)
             return False, "❌ Guest role does not exist and bot lacks permission to create it."
 
         applicant_member = guild.get_member(applicant_id)
@@ -919,6 +920,8 @@ class GuestService:
             try:
                 await applicant_member.add_roles(guest_role, reason=f"TARVeri: Guest approved by {admin_user}")
             except discord.HTTPException as e:
+                # Rollback ticket to OPEN so admin can retry after fixing bot role hierarchy
+                await self.db.reopen_guest_ticket(ticket_id)
                 return False, f"❌ Failed to assign guest role to applicant: {e}"
 
             try:
@@ -985,7 +988,18 @@ class GuestService:
                 pass
 
             # 2. Kick member
-            if guild.me.guild_permissions.kick_members and applicant_member.top_role < guild.me.top_role:
+            can_kick = getattr(getattr(guild, "me", None), "guild_permissions", None) and getattr(
+                guild.me.guild_permissions, "kick_members", False
+            )
+            hierarchy_ok = False
+            try:
+                hierarchy_ok = applicant_member.top_role < guild.me.top_role
+            except TypeError:
+                app_pos = getattr(getattr(applicant_member, "top_role", None), "position", 0)
+                bot_pos = getattr(getattr(getattr(guild, "me", None), "top_role", None), "position", 0)
+                hierarchy_ok = app_pos < bot_pos
+
+            if can_kick and hierarchy_ok:
                 try:
                     await applicant_member.kick(
                         reason=f"TARVeri: Guest application rejected by {admin_user}: {reject_reason}"

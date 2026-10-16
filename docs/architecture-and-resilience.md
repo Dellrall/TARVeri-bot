@@ -7,11 +7,14 @@ TARVeri is designed with a privacy-first security posture, HMAC-SHA256 blind ind
 ## 📋 Table of Contents
 1. [Blind Indexing & Cryptographic Architecture](#blind-indexing--cryptographic-architecture)
 2. [Dual-Relay Email & Circuit Breaker](#dual-relay-email--circuit-breaker)
-3. [SQLite Concurrency & WAL Checkpoint](#sqlite-concurrency--wal-checkpoint)
-4. [Litestream Continuous Cloud Replication](#litestream-continuous-cloud-replication)
-5. [Storage Guard & Automated Self-Healing](#storage-guard--automated-self-healing)
-6. [Real-Time Telemetry with Sentry](#real-time-telemetry-with-sentry)
-7. [Outage Watchdog & Self-Healing](#outage-watchdog--self-healing)
+3. [Dead Letter Queue (DLQ) & Background Worker](#dead-letter-queue-dlq--background-worker)
+4. [Modular Repository & Domain Architecture](#modular-repository--domain-architecture)
+5. [SQLite Concurrency & WAL Checkpoint](#sqlite-concurrency--wal-checkpoint)
+6. [Litestream Continuous Cloud Replication](#litestream-continuous-cloud-replication)
+7. [Storage Guard & Automated Self-Healing](#storage-guard--automated-self-healing)
+8. [Real-Time Telemetry with Sentry](#real-time-telemetry-with-sentry)
+9. [Outage Watchdog & Self-Healing](#outage-watchdog--self-healing)
+10. [Unicode Normalization & Interaction Timeout Hardening](#unicode-normalization--interaction-timeout-hardening)
 
 ---
 
@@ -42,7 +45,41 @@ flowchart LR
 
 ---
 
-## 3. SQLite Concurrency & WAL Checkpoint
+## 3. Dead Letter Queue (DLQ) & Background Worker
+
+TARVeri integrates an asynchronous Dead Letter Queue (`DeadLetterQueueService` and `tarveri/db/dlq_repo.py`) to prevent transient service interruptions (e.g., SMTP rate limiting, network blips, outbound alert failures) from discarding user operations.
+
+- **Persistent Queue Storage**: Failed tasks are serialized with payload metadata, error traces, and retry attempt counters in the `dead_letter_queue` SQLite table.
+- **Exponential Backoff**: Configured with automated interval checks (default 60s) and exponential backoff retry scheduling (`next_retry_at`) up to 5 retries.
+- **Poison Pill Isolation**: Once maximum retries are exhausted without success, tasks transition to `DEAD` state, triggering Sentry incident logging for manual administrative review without blocking other queue consumers.
+
+---
+
+## 4. Modular Repository & Domain Architecture
+
+To eliminate God Objects and maintain high maintainability as the codebase expands, TARVeri is organized using modular domain repository and service mixins:
+
+- **Database Repository Mixins (`tarveri/db/`)**:
+  - `verification_repo.py`: Student records, profiles, and lifecycle persistence.
+  - `guest_repo.py`: Referral codes, review tickets, and vouch records.
+  - `settings_repo.py`: Guild configuration, admin channels, and feature toggles.
+  - `blacklist_repo.py`: Multi-vector blacklist entries and enforcement.
+  - `mass_action_repo.py`: High-impact operation snapshots and rollback states.
+  - `uptime_repo.py`: Heartbeat sessions, SLA intervals, and downtime tracking.
+  - `dlq_repo.py`: Dead letter queue entries and retry states.
+- **Verification Service Mixins (`tarveri/services/verification/`)**:
+  - `role_mixin.py`: Faculty and study level role provisioning.
+  - `reconciliation_mixin.py`: Server join sync and startup role reconciliation.
+  - `moderation_mixin.py`: Unverification and alumni status revocation.
+  - `lifecycle_mixin.py`: Card expiry prompts and alumni transition gates.
+- **Extracted UI View Modules (`tarveri/views/`)**:
+  - `verification_views.py`: Verification modals, OTP prompts, and alumni confirmation views.
+  - `guest_views.py`: Gateway panels, application modals, and private review thread views.
+  - `admin_views.py`: High-impact confirmation dialogs and mass revocation guards.
+
+---
+
+## 5. SQLite Concurrency & WAL Checkpoint
 
 - **Write-Ahead Logging (`journal_mode=WAL`)**: Allows concurrent reads without blocking writes.
 - **Busy Timeout**: Configured with `busy_timeout=15000` (15 seconds) to prevent database lock exceptions during traffic spikes.
@@ -50,7 +87,7 @@ flowchart LR
 
 ---
 
-## 4. Litestream Continuous Cloud Replication
+## 6. Litestream Continuous Cloud Replication
 
 TARVeri supports [Litestream](https://litestream.io) for continuous frame-by-frame SQLite streaming to Cloudflare R2 / AWS S3:
 
@@ -104,7 +141,7 @@ dbs:
 
 ---
 
-## 5. Storage Guard & Automated Self-Healing
+## 7. Storage Guard & Automated Self-Healing
 
 The `StorageGuardService` monitors SQLite database size, WAL/SHM files, local backups, and log directories against configurable thresholds (`TARVERI_MAX_STORAGE_MB`, default 500 MB).
 
@@ -114,7 +151,7 @@ The `StorageGuardService` monitors SQLite database size, WAL/SHM files, local ba
 
 ---
 
-## 6. Real-Time Telemetry with Sentry
+## 8. Real-Time Telemetry with Sentry
 
 Set `TARVERI_SENTRY_DSN` in `.env` to capture unhandled Discord interaction exceptions, database anomalies, and background task errors in real time.
 
@@ -125,8 +162,20 @@ python3 scripts/test_sentry.py
 
 ---
 
-## 7. Outage Watchdog & Self-Healing
+## 9. Outage Watchdog & Self-Healing
 
 - **Network Probe Daemon**: Tests gateway connectivity and debounces alerts (300s window) during ISP instability.
 - **Power Signal Checkpoint**: Captures `SIGPWR` (from UPS daemons) to flush SQLite WAL to disk immediately before shutdown.
 - **Self-Healing on Startup**: Auto-recreates deleted roles, discovers valid review channels, and syncs member states.
+
+---
+
+## 10. Unicode Normalization & Interaction Timeout Hardening
+
+Real-world user input and Discord interaction lifecycles are hardened against edge cases:
+
+- **Unicode (NFKC) Normalization**: Student IDs, card expiry dates, OTP codes, and referral codes are normalized using `unicodedata.normalize("NFKC", ...)` to seamlessly handle full-width alphanumeric input from Asian IME keyboards (e.g. `２４ＷＭＤ０１２３４` -> `24WMD01234`).
+- **Invisible Character Stripping**: Zero-width spaces (`\u200b`, `\u200c`, `\u200d`, `\ufeff`) and non-breaking spaces (`\xa0`) copy-pasted from mobile devices or PDFs are stripped before regex validation.
+- **Line-1 Interaction Deferral**: All Discord UI Modals invoke `await interaction.response.defer(ephemeral=True, thinking=True)` on line 1 of their `on_submit` handlers, eliminating `10062 Unknown interaction` timeout errors if background database queries or regex parsing take longer than 3.0 seconds under heavy load.
+- **Resilient Thread Resolution**: Interaction components in Discord review threads resolve parent threads through `_resolve_review_thread` using fallback API fetching if Discord passes partial or `InteractionChannel` objects.
+- **Downstream Role Failure Rollback**: If an admin approves a guest ticket but role assignment fails due to bot role hierarchy (`HTTPException`), the ticket status is rolled back to `OPEN` via `reopen_guest_ticket()`, preventing stranded permanently approved tickets.
