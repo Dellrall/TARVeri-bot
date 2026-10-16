@@ -262,7 +262,7 @@ class ConsoleService:
         def _on_ctrl_d(event):
             event.app.exit()
             if self._loop and self._loop.is_running():
-                asyncio.create_task(self.bot.close())
+                asyncio.create_task(self._cmd_stop())
 
         root = HSplit([
             self.log_area,
@@ -639,3 +639,11 @@ class ConsoleService:
         self.write_output("[INFO] Shutting down bot gracefully from console...")
         self.stop()
         await self.bot.close()
+        if self._loop and self._loop.is_running() and "pytest" not in sys.modules:
+            try:
+                import os
+                import signal
+
+                os.kill(os.getpid(), signal.SIGINT)
+            except Exception:
+                sys.exit(0)
