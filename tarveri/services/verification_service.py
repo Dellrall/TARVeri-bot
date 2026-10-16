@@ -5,6 +5,7 @@ Verification business logic, concurrency control, and cross-guild role synchroni
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import re
 import sqlite3
@@ -2927,6 +2928,18 @@ class VerificationService:
                 return True
         except Exception as exc:
             logger.warning(f"Failed to send admin security alert to #tarveri-log in '{guild.name}': {exc}")
+            dlq = getattr(self.bot, "dead_letter_service", None)
+            if dlq and hasattr(dlq, "enqueue_security_alert"):
+                try:
+                    res = dlq.enqueue_security_alert(
+                        guild_id=guild.id,
+                        embed_data=embed.to_dict(),
+                        error_reason=str(exc),
+                    )
+                    if inspect.isawaitable(res):
+                        await res
+                except Exception as dlq_err:
+                    logger.debug("Failed enqueueing security alert to DLQ: %s", dlq_err)
         return False
 
     async def stage_mass_revocation(

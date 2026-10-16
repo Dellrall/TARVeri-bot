@@ -8,7 +8,7 @@ import asyncio
 import inspect
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from tarveri.config import now_formatted
 
@@ -43,6 +43,7 @@ class OutageService:
         probe_interval: int = 15,
         alert_grace_seconds: int = 20,
         probe_targets: tuple[tuple[str, int], ...] | None = None,
+        dlq_service: Any = None,
     ):
         self.bot = bot
         self.db = db
@@ -50,6 +51,7 @@ class OutageService:
         self.probe_interval = max(1, probe_interval)
         self.alert_grace_seconds = max(0, alert_grace_seconds)
         self.probe_targets = probe_targets or DEFAULT_PROBE_TARGETS
+        self.dlq_service = dlq_service
 
         self._task: asyncio.Task[None] | None = None
         self._disconnected_at: float | None = None
@@ -145,6 +147,21 @@ class OutageService:
                     f"✅ [OutageWatchdog] Gateway reconnected after {downtime:.1f}s. "
                     f"Emergency graceful shutdown countdown cancelled."
                 )
+                dlq = self.dlq_service or getattr(self.bot, "dead_letter_service", None)
+                if dlq and hasattr(dlq, "enqueue_outage"):
+                    started_str = self._disconnect_walltime or now_formatted()
+                    ended_str = now_formatted()
+                    coro_dlq = dlq.enqueue_outage(
+                        alert_type="OUTAGE_RESOLVED",
+                        reason=f"Discord gateway reconnected and network recovered. Total downtime: {downtime:.1f}s.",
+                        downtime_seconds=downtime,
+                        started_at=started_str,
+                        ended_at=ended_str,
+                    )
+                    if inspect.isawaitable(coro_dlq):
+                        asyncio.create_task(coro_dlq, name="tarveri_dlq_outage_resolved")
+                if dlq and hasattr(dlq, "trigger_processing"):
+                    dlq.trigger_processing()
             else:
                 logger.debug(f"Discord gateway reconnected/resumed after {downtime:.2f}s (normal blip).")
 
@@ -175,6 +192,15 @@ class OutageService:
         )
         self._shutdown_reason = f"Power outage signal ({sig_name})"
         self._shutdown_triggered = True
+        dlq = self.dlq_service or getattr(self.bot, "dead_letter_service", None)
+        if dlq and hasattr(dlq, "enqueue_outage"):
+            coro_pwr = dlq.enqueue_outage(
+                alert_type="POWER_OUTAGE",
+                reason=f"OS Power Outage Signal '{sig_name}' received. Emergency shutdown initiated.",
+                started_at=now_formatted(),
+            )
+            if inspect.isawaitable(coro_pwr):
+                asyncio.create_task(coro_pwr, name="tarveri_dlq_power_outage")
 
     async def _watchdog_loop(self) -> None:
         """Main periodic watchdog loop checking connection and outage timeout."""
@@ -214,6 +240,19 @@ class OutageService:
                             f"⚠️ [OutageWatchdog] Outage detected at {self._disconnect_walltime} ({net_status}). "
                             f"Starting {remaining:.0f}s grace countdown before emergency graceful shutdown..."
                         )
+                        dlq = self.dlq_service or getattr(self.bot, "dead_letter_service", None)
+                        if dlq and hasattr(dlq, "enqueue_outage"):
+                            try:
+                                res_dlq = dlq.enqueue_outage(
+                                    alert_type="OUTAGE_STARTED",
+                                    reason=f"Network/gateway outage detected ({net_status}).",
+                                    started_at=self._disconnect_walltime,
+                                    probe_desc=probe_desc,
+                                )
+                                if inspect.isawaitable(res_dlq):
+                                    await res_dlq
+                            except Exception as dlq_err:
+                                logger.debug("Failed enqueueing outage start alert to DLQ: %s", dlq_err)
 
                     if elapsed >= self.timeout_seconds:
                         self._shutdown_triggered = True
@@ -224,6 +263,20 @@ class OutageService:
                             f"🛑 [OutageWatchdog] Outage persisted for {elapsed:.1f}s (limit: {self.timeout_seconds}s). "
                             f"{probe_desc}. Executing emergency graceful shutdown..."
                         )
+                        dlq = self.dlq_service or getattr(self.bot, "dead_letter_service", None)
+                        if dlq and hasattr(dlq, "enqueue_outage"):
+                            try:
+                                res_dlq = dlq.enqueue_outage(
+                                    alert_type="EMERGENCY_SHUTDOWN",
+                                    reason=self._shutdown_reason,
+                                    downtime_seconds=elapsed,
+                                    started_at=self._disconnect_walltime,
+                                    probe_desc=probe_desc,
+                                )
+                                if inspect.isawaitable(res_dlq):
+                                    await res_dlq
+                            except Exception as dlq_err:
+                                logger.debug("Failed enqueueing emergency shutdown alert to DLQ: %s", dlq_err)
                         try:
                             if self.db.is_connected:
                                 await self.db.log(

@@ -8,7 +8,7 @@ import asyncio
 import inspect
 import logging
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 import discord
 from discord import app_commands
@@ -82,6 +82,7 @@ class AdminCog(commands.Cog, name="Admin"):
         log_rotator: LogRotationService | None = None,
         guest_service: GuestService | None = None,
         uptime_service: UptimeService | None = None,
+        dead_letter_service: Any = None,
     ):
         self.bot = bot
         self.db = db
@@ -92,6 +93,7 @@ class AdminCog(commands.Cog, name="Admin"):
         self.log_rotator = log_rotator
         self.guest_service = guest_service
         self.uptime_service = uptime_service
+        self.dead_letter_service = dead_letter_service
 
     def _check_admin(self, interaction: discord.Interaction) -> bool:
         return is_admin_or_has_role(interaction, self.admin_role_name)
@@ -407,6 +409,17 @@ class AdminCog(commands.Cog, name="Admin"):
                 value=f"• Auto-archived **{thread_stats['archived']}** lingering resolved review thread(s)",
                 inline=False,
             )
+
+        dlq_svc = self.dead_letter_service or getattr(self.bot, "dead_letter_service", None)
+        if dlq_svc and hasattr(dlq_svc, "get_health_status"):
+            res_dlq = dlq_svc.get_health_status()
+            dlq_health = await res_dlq if inspect.isawaitable(res_dlq) else res_dlq
+            if isinstance(dlq_health, dict) and dlq_health.get("warning"):
+                embed.add_field(
+                    name="📬 Dead Letter Queue Notice",
+                    value=f"• {dlq_health['warning']}",
+                    inline=False,
+                )
 
         embed.add_field(
             name="📡 Channel Configuration Health",

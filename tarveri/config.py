@@ -472,6 +472,10 @@ class Settings:
     enable_storage_guard: bool = True
     storage_check_interval_hours: int = 6
     mass_revocation_threshold: int = 5
+    enable_dead_letter_queue: bool = True
+    dlq_retry_interval_seconds: int = 60
+    dlq_max_retries: int = 5
+    dlq_purge_days: int = 30
 
     @property
     def restrict_smtp_usage(self) -> bool:
@@ -632,6 +636,14 @@ class Settings:
         mass_revocation_threshold = _env_int(
             "TARVERI_MASS_REVOCATION_THRESHOLD", "MASS_REVOCATION_THRESHOLD", default=5
         )
+        enable_dead_letter_queue = _env_bool(
+            "TARVERI_ENABLE_DEAD_LETTER_QUEUE", "ENABLE_DEAD_LETTER_QUEUE", default=True
+        )
+        dlq_retry_interval_seconds = _env_int(
+            "TARVERI_DLQ_RETRY_INTERVAL_SECONDS", "DLQ_RETRY_INTERVAL_SECONDS", default=60
+        )
+        dlq_max_retries = _env_int("TARVERI_DLQ_MAX_RETRIES", "DLQ_MAX_RETRIES", default=5)
+        dlq_purge_days = _env_int("TARVERI_DLQ_PURGE_DAYS", "DLQ_PURGE_DAYS", default=30)
 
         if validate:
             if not bot_token:
@@ -701,6 +713,10 @@ class Settings:
             enable_storage_guard=enable_storage_guard,
             storage_check_interval_hours=storage_check_interval_hours,
             mass_revocation_threshold=mass_revocation_threshold,
+            enable_dead_letter_queue=enable_dead_letter_queue,
+            dlq_retry_interval_seconds=dlq_retry_interval_seconds,
+            dlq_max_retries=dlq_max_retries,
+            dlq_purge_days=dlq_purge_days,
         )
 
 

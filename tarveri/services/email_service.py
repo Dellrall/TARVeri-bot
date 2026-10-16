@@ -116,10 +116,17 @@ class EmailService:
     - Encrypts/decrypts student emails at rest with AES-256 (Fernet)
     """
 
-    def __init__(self, settings: Settings, db: Any = None, mock_smtp: bool = False) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        db: Any = None,
+        mock_smtp: bool = False,
+        dlq_service: Any = None,
+    ) -> None:
         self.settings = settings
         self.db = db
         self.mock_smtp = mock_smtp
+        self.dlq_service = dlq_service
         self._pending_otps: dict[int, PendingOtp] = {}
         self._lock = asyncio.Lock()
         self._last_bounce_info: str | None = None
@@ -240,6 +247,22 @@ class EmailService:
         )
 
         if not send_success:
+            if self.dlq_service and hasattr(self.dlq_service, "enqueue_email"):
+                try:
+                    await self.dlq_service.enqueue_email(
+                        user_id=user_id,
+                        student_id=student_id,
+                        email=email_clean,
+                        otp_code=otp_code,
+                        server_name=server_name,
+                        ttl_minutes=max(1, ttl // 60),
+                        expires_at=time.time() + ttl,
+                        error_reason=self._last_bounce_info or "SMTP transmission failed",
+                        card_expiry_date=card_expiry_date,
+                    )
+                except Exception as dlq_err:
+                    logger.debug("Failed enqueueing email to DLQ: %s", dlq_err)
+
             async with self._lock:
                 self._pending_otps.pop(user_id, None)
             if self._last_bounce_info:

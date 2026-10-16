@@ -5,6 +5,7 @@ Bot class, lifecycle orchestration, and main runner.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import signal
 from typing import Any
@@ -29,6 +30,7 @@ from tarveri.config import Settings, setup_logger
 from tarveri.database import Database
 from tarveri.rate_limiter import RateLimiter
 from tarveri.services.card_service import CardService
+from tarveri.services.dead_letter_service import DeadLetterQueueService
 from tarveri.services.email_service import EmailService
 from tarveri.services.graduation_watchdog_service import GraduationWatchdogService
 from tarveri.services.guest_service import GuestService
@@ -135,6 +137,21 @@ class TARVeriBot(commands.Bot):
         )
         self.random_tag_service = RandomTagService(bot=self, db=self.db)
         self.uptime_service = UptimeService(bot=self, db=self.db)
+        self.dead_letter_service = (
+            DeadLetterQueueService(
+                bot=self,
+                db=self.db,
+                settings=settings,
+                email_service=self.email_service,
+            )
+            if getattr(settings, "enable_dead_letter_queue", True)
+            else None
+        )
+        if self.email_service:
+            self.email_service.dlq_service = self.dead_letter_service
+        if self.outage_service:
+            self.outage_service.dlq_service = self.dead_letter_service
+
         self._is_ready_logged = False
         self._cmd_sync_task: asyncio.Task[None] | None = None
 
@@ -174,6 +191,7 @@ class TARVeriBot(commands.Bot):
                 log_rotator=self.log_rotator,
                 guest_service=self.guest_service,
                 uptime_service=self.uptime_service,
+                dead_letter_service=self.dead_letter_service,
             )
         )
         await self.add_cog(
@@ -208,6 +226,9 @@ class TARVeriBot(commands.Bot):
         # Launch non-blocking background command sync so bot connects to gateway immediately
         self._cmd_sync_task = asyncio.create_task(self._sync_commands_background(), name="tarveri_cmd_sync")
         logger.info("Database connected, cogs loaded, and persistent views registered.")
+
+        if self.dead_letter_service:
+            self.dead_letter_service.start()
 
         if self.update_checker:
             self.update_checker.start()
@@ -320,6 +341,9 @@ class TARVeriBot(commands.Bot):
         if self.random_tag_service:
             self.random_tag_service.stop()
 
+        if self.dead_letter_service:
+            self.dead_letter_service.stop()
+
         if self.uptime_service:
             await self.uptime_service.stop()
 
@@ -336,6 +360,24 @@ class TARVeriBot(commands.Bot):
             logger.error(f"Error while closing database: {e}")
 
         await super().close()
+
+    async def on_error(self, event_method: str, *args: Any, **kwargs: Any) -> None:
+        """Global handler for unhandled exceptions raised during Discord events."""
+        logger.error(f"Unhandled exception in Discord event '{event_method}'", exc_info=True)
+        if getattr(self, "dead_letter_service", None):
+            import sys
+
+            _, exc_val, _ = sys.exc_info()
+            if exc_val and not isinstance(exc_val, asyncio.CancelledError):
+                try:
+                    res = self.dead_letter_service.enqueue_exception(
+                        exc=exc_val,
+                        context=f"Discord event: {event_method}",
+                    )
+                    if inspect.isawaitable(res):
+                        await res
+                except Exception as e:
+                    logger.debug(f"Failed to enqueue exception to DLQ: {e}")
 
 
 async def run_bot(settings: Settings | None = None) -> None:

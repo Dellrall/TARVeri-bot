@@ -32,6 +32,7 @@ from tarveri.config import (
 )
 from tarveri.database import Database, list_backups, rotate_backups
 from tarveri.rate_limiter import RateLimiter
+from tarveri.services.dead_letter_service import DeadLetterQueueService
 from tarveri.services.guest_service import GuestService
 from tarveri.services.log_service import (
     LogRotationService,
@@ -63,6 +64,7 @@ __all__ = [
     "STUDY_LEVEL_ROLE_NAMES",
     "DailyRotatingFileHandler",
     "Database",
+    "DeadLetterQueueService",
     "GuestService",
     "LogRotationService",
     "OutageService",
