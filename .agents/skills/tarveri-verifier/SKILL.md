@@ -767,6 +767,64 @@ TARVERI_TELEGRAM_THREAD_ID=              # Optional: Supergroup topic ID
 
 ---
 
+## 🤝 TARClub Society Bot Cross-Integration Plan (Roadmap)
+
+TARVeri and **TARClub** (the dedicated society governance and annual committee management bot) integrate seamlessly using a loosely coupled, zero-trust API architecture.
+
+### 1. Architectural Relationship
+- **TARVeri (Identity Provider)**: Acts as the Single Source of Truth for verified TAR UMT student matriculation numbers, faculties, and academic status.
+- **TARClub (Service Consumer)**: Manages society registration, dynamic theming, 14-role committee rosters, and annual handovers. Enforces that only verified TAR UMT students can hold Executive Committee (Exco) positions.
+
+```mermaid
+flowchart LR
+    subgraph Guild ["Discord Guild (Co-located or Linked)"]
+        TC["TARClub (Society Bot)"]
+        TV["TARVeri (Verification Bot)"]
+    end
+
+    TC -- "1. Detects Mutual Guild" --> TV
+    TC -- "2. Check Eligibility (user_id)" --> API["TARVeri Local API / IPC"]
+    API -- "3. Verify Student ID & Status" --> DB[("TARVeri SQLite DB")]
+    API -- "4. Returns Verified Profile" --> TC
+    TC -- "5. Grants Committee Role & RBAC" --> Member["Verified Student"]
+```
+
+### 2. Co-Location Auto-Discovery
+1. **Discord Guild Presence Check**:
+   - Both bots monitor `on_guild_join` and `on_member_join`.
+   - When `guild.get_member(TARCLUB_BOT_ID)` is detected by TARVeri, TARVeri registers the server as a paired society guild.
+2. **Owner Pairing Token Handshake (Cross-Server Link)**:
+   - For societies operating on separate standalone Discord servers from the main TAR UMT campus hub:
+     ```
+     /admin pair-society guild_id:<society_guild_id>
+     ```
+   - Generates a cryptographically signed HMAC-SHA256 pairing token (`TARV-PAIR-<timestamp>-<signature>`) valid for 15 minutes.
+   - The society administrator executes `/integrate-tarveri link token:<token>` on the TARClub server to establish the trusted bridge.
+
+### 3. Verification Validation API Contract
+- **Endpoint**: `GET /api/v1/tarveri/student?user_id=<discord_id>`
+- **Auth**: `Authorization: Bearer <shared_hmac_secret>`
+- **Response Format**:
+  ```json
+  {
+    "status": "success",
+    "data": {
+      "user_id": 123456789012345678,
+      "is_verified": true,
+      "student_id": "24WMD12345",
+      "faculty": "FOCS",
+      "academic_level": "DEGREE",
+      "is_alumni": false,
+      "card_expired": false
+    }
+  }
+  ```
+
+### 4. Lifecycle Event Synchronization
+- When TARVeri un-verifies, bans, or transitions a member to Alumni, an event notification is dispatched to TARClub to alert the society's Chairperson and Auditor of the eligibility status change.
+
+---
+
 ## 🚨 Operational Incidents & Post-Mortems Registry
 
 For full root cause analyses, recovery timelines, and remediation action items, consult [`docs/incidents-and-postmortems.md`](file:///mnt/backup/git/Student-verifier/docs/incidents-and-postmortems.md).
