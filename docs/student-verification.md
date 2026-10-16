@@ -13,6 +13,7 @@ TARVeri automates student verification and role provisioning for Tunku Abdul Rah
 6. [Academic Level Progression](#6-academic-level-progression)
 7. [Graduation & Alumni Status](#7-graduation--alumni-status)
 8. [Tiered Trust & Cross-Server Role Synchronization](#8-tiered-trust--cross-server-role-synchronization)
+9. [Input Normalization & Interaction Timeout Hardening](#9-input-normalization--interaction-timeout-hardening)
 
 ---
 
@@ -121,3 +122,14 @@ TARVeri implements a tiered verification trust model across multiple Discord ser
    - Strips unauthorized roles from non-email-verified students in Opt-In servers.
    - Cleans up stray verified roles from unverified users who were manually given roles or unlinked.
    - Restores missing roles to verified students across all eligible servers.
+
+---
+
+## 9. Input Normalization & Interaction Timeout Hardening
+
+To handle diverse user entry methods across mobile, desktop, and regional keyboard layouts:
+
+- **Full-Width IME Character Normalization**: All student IDs, dates, and OTP inputs are normalized through `unicodedata.normalize("NFKC", ...)` to convert Asian full-width characters (e.g. `２４ＷＭＤ０１２３４` -> `24WMD01234`, `１０／２６` -> `2026-10-31`, `６５４３２１` -> `654321`) into standard ASCII characters.
+- **Invisible Zero-Width Sanitization**: Strips hidden zero-width spaces (`\u200b`, `\u200c`, `\u200d`, `\ufeff`) and non-breaking spaces (`\xa0`) often inadvertently copied from university student portals or PDF admission letters.
+- **Delimited & Spaced OTP Flexibility**: Accepts OTP codes entered with spaces (`123 456`) or hyphens (`123-456`), stripping non-digit separators before comparison.
+- **Discord 3-Second Interaction Timeout Prevention**: All verification modals execute `await interaction.response.defer(ephemeral=True, thinking=True)` as their very first line in `on_submit`, preventing Discord `10062 Unknown interaction` errors during periods of high latency or database locks.

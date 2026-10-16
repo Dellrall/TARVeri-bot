@@ -10,6 +10,7 @@ TARVeri provides a double-verification workflow for external guests, industry pa
 3. [Alphanumeric Ticket Tracking](#alphanumeric-ticket-tracking)
 4. [Intelligent Staff Tagging & Auto-Escalation](#intelligent-staff-tagging--auto-escalation)
 5. [Automatic Revocation](#automatic-revocation)
+6. [Resilient Thread Resolution & Role Rollback](#resilient-thread-resolution--role-rollback)
 
 ---
 
@@ -70,3 +71,11 @@ Guest review threads and audit records use alphanumeric sequence numbers:
 ## 5. Automatic Revocation
 
 If a verified guest leaves, is kicked, or is banned, active review tickets are automatically closed and referral codes invalidated in SQLite.
+
+---
+
+## 6. Resilient Thread Resolution & Role Rollback
+
+- **Universal Interaction Thread Resolution**: Resolves target review threads through `_resolve_review_thread` using bot API fetching, ensuring that Discord `InteractionChannel` objects are seamlessly converted into fully interactive threads for message posting, member removal, and archiving.
+- **Idempotent Thread Locking**: If staff re-click **`Approve Guest`** on a ticket that was previously approved in SQLite but whose thread remained open, TARVeri detects the resolved state and immediately locks and archives the stranded thread.
+- **Role Assignment Rollback Guard**: If bot role hierarchy prevents adding the guest role (`discord.HTTPException: 403 Forbidden`), the ticket status is rolled back to `OPEN` via `reopen_guest_ticket()`. Administrators are notified with clear error diagnostics and can re-attempt approval once the bot role is positioned higher in server settings.

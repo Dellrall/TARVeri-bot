@@ -126,9 +126,10 @@ class node_watchdog,node_uptime,node_outage,node_litestream,node_systemd,node_up
 | Feature | Description |
 | :--- | :--- |
 | 🛡️ **Privacy & Encryption at Rest** | HMAC-SHA256 blind indexing for student IDs and emails. AES-128-CBC with HMAC-SHA256 (Fernet) authenticated encryption at rest. Raw PII is never stored in plaintext. |
-| ⚡ **Zero-Waste Dual SMTP** | Non-blocking `aiosmtplib` with `AsyncCircuitBreaker`. Automatically fails over from Primary (Resend/SMTP2GO) to Direct SMTP with 0ms penalty. |
+| ⚡ **Zero-Waste Dual SMTP & DLQ** | Non-blocking `aiosmtplib` with `AsyncCircuitBreaker` and Dead Letter Queue (`DeadLetterQueueService`). Automatically fails over to fallback relays with asynchronous exponential backoff retries. |
+| 🔤 **Unicode (IME) & Timeout Resilience** | Full-width alphanumeric (NFKC) normalization, invisible zero-width space stripping (`\u200b`, `\ufeff`), and line-1 modal deferrals preventing Discord 3-second interaction timeouts. |
 | 🎓 **Century-Safe Lifecycle** | Sliding century windowing (`1969`–`2068+`), 8-year expiry anomaly protection, and dynamic graduation auto-expiry sweeps. |
-| 🎟️ **Guest Referral Workflow** | Alphanumeric tracking (`#A0001`), double verification vouching, and intelligent auto-escalating staff review threads. |
+| 🎟️ **Guest Referral Workflow** | Alphanumeric tracking (`#A0001`), double verification vouching, robust thread resolution (`InteractionChannel` support), and intelligent auto-escalating staff review threads. |
 | ⏱️ **Uptime & SLA Tracking** | Persistent 15-second heartbeat telemetry, automated crash/outage gap detection, and rolling 24h / 7d / 30d SLA availability scoring with live dashboard reporting. |
 | 🎲 **Community Random Tagging** | Autonomous randomized `#general` engagement service featuring sub-minute jitter, probability-based rolls, role targeting, and configurable word rotations. |
 | 🎛️ **Admin Control Center** | Interactive `/admin dashboard` with live telemetry, diagnostics, role backfilling, and one-click database management. |
@@ -232,12 +233,19 @@ For full architectural breakdowns, security models, and operational runbooks, ex
 
 ---
 
-## 🧪 Testing
+## 🧪 Testing & Code Quality
 
-Run the full automated test suite with all warnings treated as errors:
+TARVeri includes a comprehensive, zero-warning automated test suite comprising **269 unit and integration tests** across 24 dedicated test suites:
 
 ```bash
+# Run the complete test suite:
 .venv/bin/pytest -v
+
+# Run code quality linting:
+.venv/bin/ruff check .
+
+# Check code formatting:
+.venv/bin/ruff format --check .
 ```
 
 ---
