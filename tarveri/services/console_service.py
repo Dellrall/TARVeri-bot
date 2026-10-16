@@ -18,11 +18,11 @@ from typing import TYPE_CHECKING, Any
 import discord
 from prompt_toolkit.application import Application
 from prompt_toolkit.completion import NestedCompleter
-from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import HSplit
 from prompt_toolkit.layout.layout import Layout
+from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import HorizontalLine, TextArea
 
 from tarveri.config import ConsoleAwareStreamHandler, hash_student_id, parse_student_id
@@ -225,9 +225,13 @@ class ConsoleService:
         )
         self.log_area.buffer.cursor_position = len(self.log_area.text)
 
+        style = Style.from_dict({
+            "text-area.prompt": "ansicyan bold",
+        })
+
         self.input_box = TextArea(
             height=1,
-            prompt=ANSI("\033[1;36mtarveri>\033[0m "),
+            prompt="tarveri> ",
             multiline=False,
             wrap_lines=False,
             history=history,
@@ -269,6 +273,7 @@ class ConsoleService:
         self.app = Application(
             layout=Layout(root, focused_element=self.input_box),
             key_bindings=kb,
+            style=style,
             full_screen=True,
             mouse_support=True,
         )
@@ -293,7 +298,7 @@ class ConsoleService:
         buff.text = ""
         if cmd:
             logger.info("[CMD] Executed: %s", cmd)
-            self.append_log(f"\033[1;36mtarveri>\033[0m {cmd}")
+            self.append_log(f"tarveri> {cmd}")
             if self._loop and self._loop.is_running():
                 asyncio.create_task(self.handle_command(cmd))
         return False
