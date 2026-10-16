@@ -12,17 +12,18 @@ import asyncio
 import logging
 import shlex
 import sys
-import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import discord
-from prompt_toolkit import PromptSession
+from prompt_toolkit.application import Application
 from prompt_toolkit.completion import NestedCompleter
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
-from prompt_toolkit.patch_stdout import patch_stdout
-from prompt_toolkit.shortcuts import CompleteStyle
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout.containers import HSplit
+from prompt_toolkit.layout.layout import Layout
+from prompt_toolkit.widgets import HorizontalLine, TextArea
 
 from tarveri.config import ConsoleAwareStreamHandler, hash_student_id, parse_student_id
 
@@ -116,7 +117,7 @@ def _console_completer(text: str, state: int) -> str | None:
 
 
 class ConsoleService:
-    """Provides an interactive CLI prompt for TARVeri without disrupting terminal scrollback."""
+    """Provides an interactive Split-Screen TUI for TARVeri with upper logs and compact bottom prompt."""
 
     def __init__(
         self,
@@ -130,23 +131,47 @@ class ConsoleService:
         self.service = service
         self.settings = settings
         self.running = False
-        self._thread: threading.Thread | None = None
+        self.is_active = False
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._task: asyncio.Task | None = None
+        self.app: Application[None] | None = None
+        self.log_area: TextArea | None = None
+        self.input_box: TextArea | None = None
         self.prompt = "tarveri> "
 
-    def write_output(self, text: str) -> None:
-        """Outputs text cleanly without redisplaying prompt mid-command."""
-        stream = sys.stdout
-        if stream is None or not hasattr(stream, "isatty") or not stream.isatty():
-            print(text)
+    def append_log(self, text: str) -> None:
+        """Appends log text to the top pane and scrolls to bottom."""
+        if not self.is_active or not self.log_area or not self.app:
             return
 
-        for line in str(text).splitlines():
-            stream.write(f"{line}\n")
-        stream.flush()
+        def _update() -> None:
+            if self.log_area and self.app:
+                self.log_area.text += f"{text}\n"
+                self.log_area.buffer.cursor_position = len(self.log_area.text)
+                self.app.invalidate()
+
+        if self._loop and self._loop.is_running():
+            try:
+                curr = asyncio.get_running_loop()
+                if curr is self._loop:
+                    _update()
+                else:
+                    self._loop.call_soon_threadsafe(_update)
+            except RuntimeError:
+                self._loop.call_soon_threadsafe(_update)
+
+    def write_output(self, text: str) -> None:
+        """Outputs text cleanly to log_area if TUI is active, else sys.stdout."""
+        if self.is_active:
+            for line in str(text).splitlines():
+                self.append_log(line)
+        else:
+            for line in str(text).splitlines():
+                sys.stdout.write(f"{line}\n")
+            sys.stdout.flush()
 
     def start(self) -> None:
-        """Starts the interactive console thread if running in an interactive terminal."""
+        """Starts the interactive Split-Screen TUI console if running in an interactive terminal."""
         if not getattr(self.settings, "enable_console", True):
             logger.info("[Console] Terminal console disabled via configuration.")
             return
@@ -158,77 +183,14 @@ class ConsoleService:
             )
             return
 
-        # Reset any lingering scroll margins from prior runs
-        if sys.stdout is not None and hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
-            sys.stdout.write("\033[r")
-            sys.stdout.flush()
-
         self.running = True
+        self.is_active = True
         self._loop = asyncio.get_running_loop()
+        ConsoleAwareStreamHandler._console_instance = self
 
-        self._thread = threading.Thread(
-            target=self._reader_loop,
-            daemon=True,
-            name="tarveri_console_reader",
-        )
-        self._thread.start()
-        self.write_output("🎮 TARVeri Console initialized. Type 'help' for commands | 'exit' to quit.")
-
-    def stop(self) -> None:
-        """Flags the console thread to stop and restores normal terminal state."""
-        self.running = False
-        ConsoleAwareStreamHandler._prompt_active = False
-        if sys.stdout is not None and hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
-            sys.stdout.write("\033[r\n")
-            sys.stdout.flush()
-
-    def _show_escable_help(self) -> None:
-        """Displays help menu in an alternate screen buffer dismissable with ESC, 'q', or Enter."""
-        if not (
-            sys.stdin
-            and hasattr(sys.stdin, "isatty")
-            and sys.stdin.isatty()
-            and sys.stdout
-            and hasattr(sys.stdout, "isatty")
-            and sys.stdout.isatty()
-        ):
-            self._cmd_help()
-            return
-
-        import termios
-        import tty
-
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        try:
-            # Enter alternate screen buffer, clear screen, hide cursor
-            sys.stdout.write("\033[?1049h\033[H\033[2J\033[?25l")
-            content = "\n".join(HELP_LINES)
-            sys.stdout.write(
-                content + "\n\n  \033[90m[ Press ESC, 'q', or Enter to return to console ]\033[0m\n"
-            )
-            sys.stdout.flush()
-
-            tty.setcbreak(fd)
-            while True:
-                ch = sys.stdin.read(1)
-                if ch in ("\x1b", "q", "Q", "\r", "\n", " "):
-                    break
-        except Exception as exc:
-            logger.debug("Escable help notice: %s", exc)
-        finally:
-            try:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-            except Exception as exc:
-                logger.debug("Terminal settings restore skipped: %s", exc)
-            # Show cursor, restore primary screen buffer
-            sys.stdout.write("\033[?25h\033[?1049l")
-            sys.stdout.flush()
-
-    def _reader_loop(self) -> None:
-        """Runs in a daemon thread, reading stdin line by line with prompt_toolkit support."""
         history_file = Path("logs/.tarveri_history")
         history_file.parent.mkdir(parents=True, exist_ok=True)
+        history = FileHistory(str(history_file))
 
         completer = NestedCompleter.from_nested_dict({
             "help": None,
@@ -249,49 +211,105 @@ class ConsoleService:
             "quit": None,
         })
 
-        session: PromptSession[str] = PromptSession(
-            history=FileHistory(str(history_file)),
+        initial_text = "\n".join(ConsoleAwareStreamHandler._log_buffer)
+        if initial_text:
+            initial_text += "\n"
+        initial_text += "🎮 TARVeri Console initialized. Type 'help' for commands | 'exit' to quit.\n"
+
+        self.log_area = TextArea(
+            text=initial_text,
+            read_only=True,
+            scrollbar=True,
+            wrap_lines=True,
+            focusable=False,
+        )
+        self.log_area.buffer.cursor_position = len(self.log_area.text)
+
+        self.input_box = TextArea(
+            height=1,
+            prompt=ANSI("\033[1;36mtarveri>\033[0m "),
+            multiline=False,
+            wrap_lines=False,
+            history=history,
             completer=completer,
-            complete_style=CompleteStyle.READLINE_LIKE,
+            accept_handler=self._on_accept,
         )
 
-        with patch_stdout(raw=True):
-            while self.running:
-                try:
-                    ConsoleAwareStreamHandler._prompt_active = True
-                    try:
-                        line = session.prompt(ANSI("\033[1;36mtarveri>\033[0m "))
-                    finally:
-                        ConsoleAwareStreamHandler._prompt_active = False
+        kb = KeyBindings()
 
-                    cleaned = line.strip()
-                    if not cleaned:
-                        continue
+        @kb.add("pageup")
+        def _scroll_up(event):
+            if self.log_area:
+                self.log_area.buffer.cursor_up(count=10)
 
-                    # Record user CMD input with timestamp into bot file logs
-                    logger.info("[CMD] Executed: %s", cleaned)
+        @kb.add("pagedown")
+        def _scroll_down(event):
+            if self.log_area:
+                self.log_area.buffer.cursor_down(count=10)
 
-                    # Escable help menu: rendered in alternate screen buffer so it never clutters logs or scrollback
-                    if cleaned.lower() in ("help", "?"):
-                        self._show_escable_help()
-                        continue
+        @kb.add("c-c")
+        def _on_ctrl_c(event):
+            if self.input_box and self.input_box.text:
+                self.input_box.text = ""
+            else:
+                self.append_log("[CONSOLE] Type 'exit' or 'stop' to shut down the bot.")
 
-                    if self._loop and self._loop.is_running():
-                        future = asyncio.run_coroutine_threadsafe(
-                            self.handle_command(cleaned), self._loop
-                        )
-                        try:
-                            future.result(timeout=30)
-                        except Exception as e:
-                            self.write_output(f"[ERROR] Command failed: {e}")
-                    else:
-                        break
-                except (EOFError, KeyboardInterrupt):
-                    logger.info("[Console] EOF/Interrupt received. Terminal CLI stopped.")
-                    break
-                except Exception as e:
-                    logger.debug("Error reading stdin: %s", e)
-                    break
+        @kb.add("c-d")
+        def _on_ctrl_d(event):
+            event.app.exit()
+            if self._loop and self._loop.is_running():
+                asyncio.create_task(self.bot.close())
+
+        root = HSplit([
+            self.log_area,
+            HorizontalLine(),
+            self.input_box,
+        ])
+
+        self.app = Application(
+            layout=Layout(root, focused_element=self.input_box),
+            key_bindings=kb,
+            full_screen=True,
+            mouse_support=True,
+        )
+
+        self._task = asyncio.create_task(self._run_app())
+
+    async def _run_app(self) -> None:
+        try:
+            if self.app:
+                await self.app.run_async()
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.debug("Console TUI error: %s", exc)
+        finally:
+            self.is_active = False
+            self.running = False
+            ConsoleAwareStreamHandler._console_instance = None
+
+    def _on_accept(self, buff) -> bool:
+        cmd = buff.text.strip()
+        buff.text = ""
+        if cmd:
+            logger.info("[CMD] Executed: %s", cmd)
+            self.append_log(f"\033[1;36mtarveri>\033[0m {cmd}")
+            if self._loop and self._loop.is_running():
+                asyncio.create_task(self.handle_command(cmd))
+        return False
+
+    def stop(self) -> None:
+        """Stops the interactive split-screen TUI console."""
+        self.running = False
+        self.is_active = False
+        ConsoleAwareStreamHandler._console_instance = None
+        if self.app and self.app.is_running:
+            self.app.exit()
+        if self._task and not self._task.done():
+            self._task.cancel()
+
+    def _show_escable_help(self) -> None:
+        self._cmd_help()
 
     async def handle_command(self, raw_line: str) -> None:
         """Parses and executes a console command line."""
@@ -348,7 +366,11 @@ class ConsoleService:
         self.write_output("\n".join(HELP_LINES))
 
     def _cmd_clear(self) -> None:
-        if sys.stdout is not None and hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
+        if self.is_active and self.log_area:
+            self.log_area.text = ""
+            if self.app:
+                self.app.invalidate()
+        elif sys.stdout is not None and hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
             sys.stdout.write("\033[2J\033[H")
             sys.stdout.flush()
 

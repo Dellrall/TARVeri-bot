@@ -829,11 +829,13 @@ class DailyRotatingFileHandler(logging.Handler):
 
 class ConsoleAwareStreamHandler(logging.StreamHandler):
     """
-    StreamHandler that writes background logs cleanly above the interactive prompt,
-    compatible with prompt_toolkit and preserving full terminal/tmux scrollback.
+    StreamHandler that buffers startup logs and routes real-time logs to the
+    interactive Split-Screen TUI console or standard stdout.
     """
 
     _prompt_active: bool = False
+    _log_buffer: list[str] = []
+    _console_instance: Any = None
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -843,8 +845,18 @@ class ConsoleAwareStreamHandler(logging.StreamHandler):
                 return
 
             msg = self.format(record)
-            sys.stdout.write(f"{msg}\n")
-            sys.stdout.flush()
+            ConsoleAwareStreamHandler._log_buffer.append(msg)
+            if len(ConsoleAwareStreamHandler._log_buffer) > 1000:
+                ConsoleAwareStreamHandler._log_buffer.pop(0)
+
+            if (
+                ConsoleAwareStreamHandler._console_instance
+                and getattr(ConsoleAwareStreamHandler._console_instance, "is_active", False)
+            ):
+                ConsoleAwareStreamHandler._console_instance.append_log(msg)
+            else:
+                sys.stdout.write(f"{msg}\n")
+                sys.stdout.flush()
         except Exception:
             self.handleError(record)
 
