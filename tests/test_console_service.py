@@ -73,6 +73,32 @@ async def test_console_service_status_command(mock_bot, mock_service, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_console_service_stats_command(mock_bot, mock_service, tmp_path):
+    db = Database(str(tmp_path / "test.db"))
+    await db.connect()
+    settings = Settings(bot_token="test", id_hash_secret="secret123")
+
+    await db.record_verification(
+        discord_user_id=111222333444555666,
+        student_id_hash="hash123",
+        faculty_code="FOCS",
+    )
+
+    console = ConsoleService(mock_bot, db, mock_service, settings)
+
+    captured_out = io.StringIO()
+    with patch("sys.stdout", captured_out):
+        await console.handle_command("stats")
+
+    output = captured_out.getvalue()
+    assert "Verification Statistics" in output
+    assert "Total Verified Records: 1" in output
+    assert "Active Students:        1" in output
+    assert "FOCS" in output
+    await db.close()
+
+
+@pytest.mark.asyncio
 async def test_console_service_verify_and_lookup_commands(mock_bot, mock_service, tmp_path):
     db = Database(str(tmp_path / "test.db"))
     await db.connect()

@@ -420,16 +420,18 @@ class ConsoleService:
 
     async def _cmd_stats(self) -> None:
         try:
-            total = await self.db.get_total_verifications()
-            alumni = await self.db.get_total_alumni()
+            total = await self.db.total_verified()
+            alumni = await self.db.count_alumni()
             active_students = total - alumni
-            faculty_counts = await self.db.get_verifications_count_by_faculty()
+            faculty_counts = await self.db.counts_by_faculty()
+            last_24h = await self.db.verified_in_last(24)
 
             lines = [
                 "\n--- Verification Statistics ---",
                 f"• Total Verified Records: {total}",
                 f"• Active Students:        {active_students}",
                 f"• Verified Alumni:        {alumni}",
+                f"• Verified (Last 24h):    {last_24h}",
                 "• Faculty Distribution:",
             ]
             for fac, count in faculty_counts:
