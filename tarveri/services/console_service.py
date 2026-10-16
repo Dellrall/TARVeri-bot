@@ -32,6 +32,7 @@ from prompt_toolkit.layout.containers import (
     Window,
 )
 from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.layout import Layout
 from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.styles import Style
@@ -517,7 +518,11 @@ class ConsoleService:
                 asyncio.create_task(self._cmd_stop())
 
         logs_frame = ConditionalContainer(
-            Frame(self.log_area, title="📡 System Logs (Ctrl+Up/Down to scroll • F3 to minimize)"),
+            Frame(
+                self.log_area,
+                title="📡 System Logs (Ctrl+Up/Down to scroll • F3 to minimize)",
+                height=Dimension(weight=80, min=6),
+            ),
             filter=Condition(lambda: not self._logs_minimized),
         )
         logs_bar = ConditionalContainer(
@@ -532,7 +537,11 @@ class ConsoleService:
         )
 
         output_frame = ConditionalContainer(
-            Frame(self.output_area, title="💻 Terminal Output (PgUp/PgDn to scroll • F2 to minimize)"),
+            Frame(
+                self.output_area,
+                title="💻 Terminal Output (PgUp/PgDn to scroll • F2 to minimize)",
+                height=Dimension(weight=15, min=4),
+            ),
             filter=Condition(lambda: not self._output_minimized),
         )
         output_bar = ConditionalContainer(
