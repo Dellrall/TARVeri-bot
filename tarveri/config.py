@@ -848,16 +848,26 @@ class ConsoleAwareStreamHandler(logging.StreamHandler):
             is_tty = hasattr(stream, "isatty") and stream.isatty()
 
             if is_tty and self._prompt_active:
-                cols, _ = shutil.get_terminal_size()
-                divider = f"\033[36m{'─' * cols}\033[0m"
-                stream.write(f"\r\033[K\033[1A\r\033[K{msg}\n{divider}\n")
-                stream.flush()
-                try:
-                    import readline
+                cols, rows = shutil.get_terminal_size()
+                if rows > 4:
+                    divider = f"\033[36m{'─' * cols}\033[0m"
+                    stream.write(
+                        f"\033[{rows - 1};1H\033[2K"
+                        f"\033[{rows};1H\033[2K"
+                        f"\033[{rows - 1};1H{msg}\n"
+                        f"{divider}\n"
+                        f"\033[{rows};1H\033[2K"
+                    )
+                    stream.flush()
+                    try:
+                        import readline
 
-                    readline.redisplay()
-                except Exception as exc:
-                    logger.debug("Readline redisplay skipped: %s", exc)
+                        readline.redisplay()
+                    except Exception as exc:
+                        logger.debug("Readline redisplay skipped: %s", exc)
+                else:
+                    stream.write(f"\r\033[K{msg}\n")
+                    stream.flush()
             else:
                 stream.write(f"{msg}\n")
                 stream.flush()

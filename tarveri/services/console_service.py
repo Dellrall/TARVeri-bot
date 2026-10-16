@@ -254,11 +254,15 @@ class ConsoleService:
         """Runs in a daemon thread, reading stdin line by line with GNU readline support."""
         while self.running:
             try:
-                # Render divider bar above bottom prompt if interactive TTY
+                # Render divider bar and dock prompt at the bottom row if interactive TTY
                 if sys.stdout is not None and hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
-                    cols, _ = shutil.get_terminal_size()
-                    sys.stdout.write(f"\033[36m{'─' * cols}\033[0m\n")
-                    sys.stdout.flush()
+                    cols, rows = shutil.get_terminal_size()
+                    if rows > 4:
+                        divider = f"\033[36m{'─' * cols}\033[0m"
+                        sys.stdout.write(
+                            f"\033[{rows - 1};1H\033[2K{divider}\n\033[{rows};1H\033[2K"
+                        )
+                        sys.stdout.flush()
 
                 ConsoleAwareStreamHandler._prompt_active = True
                 try:
