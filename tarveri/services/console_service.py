@@ -18,10 +18,12 @@ from typing import TYPE_CHECKING, Any
 import discord
 from prompt_toolkit.application import Application
 from prompt_toolkit.completion import NestedCompleter
+from prompt_toolkit.filters import has_completions
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout.containers import HSplit
+from prompt_toolkit.layout.containers import Float, FloatContainer, HSplit
 from prompt_toolkit.layout.layout import Layout
+from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import HorizontalLine, TextArea
 
@@ -227,6 +229,11 @@ class ConsoleService:
 
         style = Style.from_dict({
             "text-area.prompt": "ansicyan bold",
+            "completion-menu": "bg:#1e1e2e #cdd6f4",
+            "completion-menu.completion": "bg:#1e1e2e #cdd6f4",
+            "completion-menu.completion.current": "bg:#45475a #89b4fa bold",
+            "scrollbar.background": "bg:#11111b",
+            "scrollbar.button": "bg:#585b70",
         })
 
         self.input_box = TextArea(
@@ -251,6 +258,35 @@ class ConsoleService:
             if self.log_area:
                 self.log_area.buffer.cursor_down(count=10)
 
+        @kb.add("tab")
+        def _on_tab(event):
+            b = self.input_box.buffer if self.input_box else event.app.current_buffer
+            if b.complete_state:
+                b.complete_next()
+            else:
+                b.start_completion(select_first=False)
+
+        @kb.add("s-tab")
+        def _on_s_tab(event):
+            b = self.input_box.buffer if self.input_box else event.app.current_buffer
+            if b.complete_state:
+                b.complete_previous()
+
+        @kb.add("down", filter=has_completions)
+        def _on_down(event):
+            b = self.input_box.buffer if self.input_box else event.app.current_buffer
+            b.complete_next()
+
+        @kb.add("up", filter=has_completions)
+        def _on_up(event):
+            b = self.input_box.buffer if self.input_box else event.app.current_buffer
+            b.complete_previous()
+
+        @kb.add("escape", filter=has_completions)
+        def _on_escape(event):
+            b = self.input_box.buffer if self.input_box else event.app.current_buffer
+            b.cancel_completion()
+
         @kb.add("c-c")
         def _on_ctrl_c(event):
             if self.input_box and self.input_box.text:
@@ -264,11 +300,22 @@ class ConsoleService:
             if self._loop and self._loop.is_running():
                 asyncio.create_task(self._cmd_stop())
 
-        root = HSplit([
+        body = HSplit([
             self.log_area,
             HorizontalLine(),
             self.input_box,
         ])
+
+        root = FloatContainer(
+            content=body,
+            floats=[
+                Float(
+                    xcursor=True,
+                    ycursor=True,
+                    content=CompletionsMenu(max_height=16),
+                )
+            ],
+        )
 
         self.app = Application(
             layout=Layout(root, focused_element=self.input_box),
