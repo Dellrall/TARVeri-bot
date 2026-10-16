@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shlex
+import shutil
 import sys
 import threading
 from pathlib import Path
@@ -18,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 import discord
 
-from tarveri.config import hash_student_id, parse_student_id
+from tarveri.config import ConsoleAwareStreamHandler, hash_student_id, parse_student_id
 
 if TYPE_CHECKING:
     from tarveri.bot import TARVeriBot
@@ -192,6 +193,7 @@ class ConsoleService:
     def stop(self) -> None:
         """Flags the console thread to stop and restores normal terminal state."""
         self.running = False
+        ConsoleAwareStreamHandler._prompt_active = False
         try:
             import readline
 
@@ -252,7 +254,18 @@ class ConsoleService:
         """Runs in a daemon thread, reading stdin line by line with GNU readline support."""
         while self.running:
             try:
-                line = input(self.prompt)
+                # Render divider bar above bottom prompt if interactive TTY
+                if sys.stdout is not None and hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
+                    cols, _ = shutil.get_terminal_size()
+                    sys.stdout.write(f"\033[36m{'─' * cols}\033[0m\n")
+                    sys.stdout.flush()
+
+                ConsoleAwareStreamHandler._prompt_active = True
+                try:
+                    line = input(self.prompt)
+                finally:
+                    ConsoleAwareStreamHandler._prompt_active = False
+
                 cleaned = line.strip()
                 if not cleaned:
                     continue

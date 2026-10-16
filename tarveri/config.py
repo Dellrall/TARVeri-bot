@@ -10,6 +10,7 @@ import hmac
 import logging
 import os
 import re
+import shutil
 import sys
 import unicodedata
 import zoneinfo
@@ -829,10 +830,11 @@ class DailyRotatingFileHandler(logging.Handler):
 
 class ConsoleAwareStreamHandler(logging.StreamHandler):
     """
-    StreamHandler that writes logs cleanly without disrupting active console
-    prompt keystrokes, using line-clearing carriage return and readline redisplay.
-    Preserves 100% of terminal and tmux scrollback history.
+    StreamHandler that writes background logs cleanly above the bottom prompt,
+    preserving full terminal/tmux scrollback without prompt overlapping.
     """
+
+    _prompt_active: bool = False
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -843,8 +845,12 @@ class ConsoleAwareStreamHandler(logging.StreamHandler):
 
             msg = self.format(record)
             stream = self.stream or sys.stdout
-            if hasattr(stream, "isatty") and stream.isatty():
-                stream.write(f"\r\033[K{msg}\n")
+            is_tty = hasattr(stream, "isatty") and stream.isatty()
+
+            if is_tty and self._prompt_active:
+                cols, _ = shutil.get_terminal_size()
+                divider = f"\033[36m{'─' * cols}\033[0m"
+                stream.write(f"\r\033[K\033[1A\r\033[K{msg}\n{divider}\n")
                 stream.flush()
                 try:
                     import readline
