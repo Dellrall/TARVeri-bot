@@ -352,8 +352,11 @@ class ConsoleService:
             b = self.input_box.buffer if self.input_box else event.app.current_buffer
             b.cancel_completion()
 
+        last_ctrl_c = 0.0
+
         @kb.add("c-c")
         def _on_ctrl_c(event):
+            nonlocal last_ctrl_c
             if self._is_password_mode:
                 self._is_password_mode = False
                 self._pending_auth_user = None
@@ -361,10 +364,19 @@ class ConsoleService:
                 if self.app:
                     self.app.invalidate()
                 return
-            if self.input_box and self.input_box.text:
+
+            now = time.monotonic()
+            if (not self.input_box or not self.input_box.text) or (now - last_ctrl_c < 2.0):
+                self.write_output("[INFO] Ctrl+C received. Shutting down bot gracefully...")
+                event.app.exit()
+                if self._loop and self._loop.is_running():
+                    asyncio.create_task(self._cmd_stop())
+                return
+
+            last_ctrl_c = now
+            if self.input_box:
                 self.input_box.text = ""
-            else:
-                self.append_log("[CONSOLE] Type 'exit' or 'stop' to shut down the bot.")
+            self.write_output("[CONSOLE] Press Ctrl+C again (or type 'stop' / 'exit') to shut down.")
 
         @kb.add("c-d")
         def _on_ctrl_d(event):
