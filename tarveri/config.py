@@ -10,7 +10,6 @@ import hmac
 import logging
 import os
 import re
-import shutil
 import sys
 import unicodedata
 import zoneinfo
@@ -830,8 +829,8 @@ class DailyRotatingFileHandler(logging.Handler):
 
 class ConsoleAwareStreamHandler(logging.StreamHandler):
     """
-    StreamHandler that writes background logs cleanly above the bottom prompt,
-    preserving full terminal/tmux scrollback without prompt overlapping.
+    StreamHandler that writes background logs cleanly above the interactive prompt,
+    compatible with prompt_toolkit and preserving full terminal/tmux scrollback.
     """
 
     _prompt_active: bool = False
@@ -844,33 +843,8 @@ class ConsoleAwareStreamHandler(logging.StreamHandler):
                 return
 
             msg = self.format(record)
-            stream = self.stream or sys.stdout
-            is_tty = hasattr(stream, "isatty") and stream.isatty()
-
-            if is_tty and self._prompt_active:
-                cols, rows = shutil.get_terminal_size()
-                if rows > 4:
-                    divider = f"\033[36m{'─' * cols}\033[0m"
-                    stream.write(
-                        f"\033[{rows - 1};1H\033[2K"
-                        f"\033[{rows};1H\033[2K"
-                        f"\033[{rows - 1};1H{msg}\n"
-                        f"{divider}\n"
-                        f"\033[{rows};1H\033[2K"
-                    )
-                    stream.flush()
-                    try:
-                        import readline
-
-                        readline.redisplay()
-                    except Exception as exc:
-                        logger.debug("Readline redisplay skipped: %s", exc)
-                else:
-                    stream.write(f"\r\033[K{msg}\n")
-                    stream.flush()
-            else:
-                stream.write(f"{msg}\n")
-                stream.flush()
+            sys.stdout.write(f"{msg}\n")
+            sys.stdout.flush()
         except Exception:
             self.handleError(record)
 

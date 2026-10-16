@@ -6,3 +6,4 @@ cryptography>=42.0
 aiosmtplib>=5.0
 pybreaker>=1.4
 sentry-sdk>=2.0
+prompt_toolkit>=3.0.0
