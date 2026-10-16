@@ -2,6 +2,7 @@
 Discord UI Views and Modals for TARVeri.
 """
 
+from tarveri.views.admin_views import MassRevocationApprovalView
 from tarveri.views.guest_views import (
     CloseTicketModal,
     GuestApplicationModal,
@@ -35,6 +36,8 @@ from tarveri.views.verification_views import (
 )
 
 __all__ = [
+    # Admin
+    "MassRevocationApprovalView",
     # Verification
     "AlumniClaimModal",
     "AlumniEmailConfirmationView",
