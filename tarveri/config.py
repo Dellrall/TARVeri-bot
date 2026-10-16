@@ -920,6 +920,18 @@ def mask_email(email: str) -> str:
     return f"{masked_local}@{domain}"
 
 
+def generate_society_pairing_token(society_guild_id: int, secret: str = "") -> tuple[str, str]:
+    """Generates a secure pairing token and SHA-256 hash for TARClub integration."""
+    salt = os.urandom(8).hex()
+    ts = int(datetime.now(UTC).timestamp())
+    payload = f"{society_guild_id}:{ts}:{salt}"
+    key = (secret or os.getenv("TARVERI_HMAC_SECRET") or "TARVERI_SOCIETY_SECRET").encode("utf-8")
+    sig = hmac.new(key, payload.encode("utf-8"), hashlib.sha256).hexdigest()[:16]
+    token = f"TARV-{society_guild_id}-{ts}-{sig}"
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    return token, token_hash
+
+
 def is_valid_student_email(
     email: str,
     allowed_domains: tuple[str, ...] | list[str] = ("student.tarc.edu.my", "tarc.edu.my"),

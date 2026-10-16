@@ -23,6 +23,7 @@ from tarveri.db import (
     GuestRepoMixin,
     GuildSettingsRepoMixin,
     MassActionRepoMixin,
+    SocietyBridgeRepoMixin,
     UptimeRepoMixin,
     VerificationRepoMixin,
 )
@@ -246,6 +247,7 @@ class Database(
     MassActionRepoMixin,
     UptimeRepoMixin,
     DeadLetterRepoMixin,
+    SocietyBridgeRepoMixin,
 ):
     """
     Database interface for TARVeri.
@@ -454,6 +456,15 @@ class Database(
                 updated_at TEXT NOT NULL,
                 next_retry_at TEXT,
                 metadata TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS paired_societies (
+                society_guild_id INTEGER PRIMARY KEY,
+                pairing_token_hash TEXT NOT NULL,
+                paired_by_user_id INTEGER NOT NULL,
+                paired_at TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                notes TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_log(event_type);
