@@ -120,6 +120,14 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     git fetch origin --quiet || true
 fi
 
+# Auto-migrate legacy remote URL from personal account to TARBot-OSS org
+CURRENT_REMOTE_URL="$(git remote get-url origin 2>/dev/null || true)"
+if echo "${CURRENT_REMOTE_URL}" | grep -q "Dellrall/TARVeri"; then
+    MIGRATED_REMOTE_URL=$(echo "${CURRENT_REMOTE_URL}" | sed 's/Dellrall/TARBot-OSS/g')
+    log_info "Migrating remote origin to TARBot-OSS: ${MIGRATED_REMOTE_URL}"
+    git remote set-url origin "${MIGRATED_REMOTE_URL}"
+fi
+
 # Fetch and prune remote tracking references
 log_info "Syncing remote metadata (pruning deleted branches)..."
 git fetch --prune origin --quiet || true
