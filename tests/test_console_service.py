@@ -380,3 +380,62 @@ async def test_console_service_user_management(mock_bot, mock_service, tmp_path)
     assert await db.is_console_admin("admin")
 
     await db.close()
+
+
+@pytest.mark.asyncio
+async def test_console_service_view_and_minimize_layout(mock_bot, mock_service, tmp_path):
+    db = Database(str(tmp_path / "test.db"))
+    await db.connect()
+    settings = Settings(bot_token="test", id_hash_secret="secret123")
+
+    console = ConsoleService(mock_bot, db, mock_service, settings)
+    assert not console._output_minimized
+    assert not console._logs_minimized
+
+    # 1. Minimize output
+    captured = io.StringIO()
+    with patch("sys.stdout", captured):
+        await console.handle_command("minimize output")
+    assert console._output_minimized
+    assert "Terminal output minimized" in captured.getvalue()
+
+    # 2. View split restores
+    captured = io.StringIO()
+    with patch("sys.stdout", captured):
+        await console.handle_command("view split")
+    assert not console._output_minimized
+    assert not console._logs_minimized
+    assert "Split view" in captured.getvalue()
+
+    # 3. View logs minimizes output
+    captured = io.StringIO()
+    with patch("sys.stdout", captured):
+        await console.handle_command("view logs")
+    assert console._output_minimized
+    assert not console._logs_minimized
+    assert "Logs view" in captured.getvalue()
+
+    # 4. View output minimizes logs
+    captured = io.StringIO()
+    with patch("sys.stdout", captured):
+        await console.handle_command("view output")
+    assert not console._output_minimized
+    assert console._logs_minimized
+    assert "Output view" in captured.getvalue()
+
+    # 5. Restore restores all
+    captured = io.StringIO()
+    with patch("sys.stdout", captured):
+        await console.handle_command("restore all")
+    assert not console._output_minimized
+    assert not console._logs_minimized
+    assert "restored to Split view" in captured.getvalue()
+
+    # 6. Auto-expansion of output pane when command is executed
+    console._output_minimized = True
+    captured = io.StringIO()
+    with patch("sys.stdout", captured):
+        await console.handle_command("help")
+    assert not console._output_minimized
+
+    await db.close()

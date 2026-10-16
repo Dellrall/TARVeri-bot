@@ -24,7 +24,14 @@ from prompt_toolkit.completion import DynamicCompleter, NestedCompleter
 from prompt_toolkit.filters import Condition, has_completions
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout.containers import Float, FloatContainer, HSplit
+from prompt_toolkit.layout.containers import (
+    ConditionalContainer,
+    Float,
+    FloatContainer,
+    HSplit,
+    Window,
+)
+from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.layout import Layout
 from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.styles import Style
@@ -63,6 +70,9 @@ AVAILABLE_COMMANDS = [
     "lock",
     "logout",
     "user",
+    "view",
+    "minimize",
+    "restore",
     "clear",
     "stop",
     "exit",
@@ -74,6 +84,9 @@ AUTH_LOCKED_COMMANDS = [
     "?",
     "login",
     "setup-admin",
+    "view",
+    "minimize",
+    "restore",
     "clear",
     "stop",
     "exit",
@@ -84,6 +97,10 @@ SUBCOMMAND_OPTIONS: dict[str, list[str]] = {
     "stats": ["overview", "faculties"],
     "backup": ["snapshot", "manual"],
     "user": ["list", "add", "remove"],
+    "view": ["split", "logs", "output"],
+    "minimize": ["output", "logs"],
+    "restore": ["all", "output", "logs"],
+    "clear": ["output", "logs", "all"],
 }
 
 FACULTY_CODES = [
@@ -104,6 +121,9 @@ HELP_LINES = [
     "  setup-admin <username>          Initialize the first console administrator",
     "  lock, logout                    Lock console session",
     "  user <list|add|remove> [name]   Manage authorized console administrators",
+    "  view [split|logs|output]        Switch UI layout view (F2/F3 shortcuts)",
+    "  minimize [output|logs]          Minimize terminal output or logs pane",
+    "  restore [all|output|logs]       Restore minimized panes to split view",
     "  status                          View bot latency, uptime, guilds, memory",
     "  guilds                          List all connected Discord servers",
     "  stats [overview|faculties]      Show verification metrics and faculty counts",
@@ -114,8 +134,9 @@ HELP_LINES = [
     "  say <guild_id> <chan_id> <msg>  Send message to a channel as TARVeri",
     "  broadcast <message>             Send announcement to all configured channels",
     "  eval <code>                     Execute Python expression/statement",
-    "  clear                           Clear terminal screen",
+    "  clear [output|logs|all]         Clear terminal screen or logs",
     "  stop, exit, quit                Gracefully shut down TARVeri",
+    "  • Hotkeys: F2/Ctrl+O (Toggle Output), F3 (Toggle Logs), PgUp/PgDn (Scroll)",
     "========================================================================",
 ]
 
@@ -206,6 +227,10 @@ class ConsoleService:
         self._failed_attempts: int = 0
         self._locked_until: float = 0.0
 
+        # UI Minimization state
+        self._output_minimized: bool = False
+        self._logs_minimized: bool = False
+
     def _get_prompt(self) -> str:
         if self._is_password_mode:
             return f"Password for {self._pending_auth_user}: "
@@ -222,6 +247,9 @@ class ConsoleService:
                 "?": None,
                 "login": None,
                 "setup-admin": None,
+                "view": {"split": None, "logs": None, "output": None},
+                "minimize": {"output": None, "logs": None},
+                "restore": {"all": None, "output": None, "logs": None},
                 "clear": {"output": None, "logs": None, "all": None},
                 "stop": None,
                 "exit": None,
@@ -245,6 +273,9 @@ class ConsoleService:
             "lock": None,
             "logout": None,
             "user": {"list": None, "add": None, "remove": None},
+            "view": {"split": None, "logs": None, "output": None},
+            "minimize": {"output": None, "logs": None},
+            "restore": {"all": None, "output": None, "logs": None},
             "clear": {"output": None, "logs": None, "all": None},
             "stop": None,
             "exit": None,
@@ -356,6 +387,8 @@ class ConsoleService:
             "text-area.prompt": "ansicyan bold",
             "frame.label": "ansigreen bold",
             "frame.border": "#45475a",
+            "minimized-bar": "bg:#1e1e2e #89b4fa bold",
+            "minimized-bar.logs": "bg:#181825 #a6adc8",
             "completion-menu": "bg:#1e1e2e #cdd6f4",
             "completion-menu.completion": "bg:#1e1e2e #cdd6f4",
             "completion-menu.completion.current": "bg:#45475a #89b4fa bold",
@@ -376,15 +409,31 @@ class ConsoleService:
 
         kb = KeyBindings()
 
+        @kb.add("f2")
+        def _toggle_output_kb(event):
+            self._toggle_output_minimized()
+
+        @kb.add("c-o")
+        def _toggle_output_ctrl_o(event):
+            self._toggle_output_minimized()
+
+        @kb.add("f3")
+        def _toggle_logs_kb(event):
+            self._toggle_logs_minimized()
+
         @kb.add("pageup")
         def _scroll_up(event):
-            if self.output_area:
+            if not self._output_minimized and self.output_area:
                 self.output_area.buffer.cursor_up(count=10)
+            elif self.log_area:
+                self.log_area.buffer.cursor_up(count=10)
 
         @kb.add("pagedown")
         def _scroll_down(event):
-            if self.output_area:
+            if not self._output_minimized and self.output_area:
                 self.output_area.buffer.cursor_down(count=10)
+            elif self.log_area:
+                self.log_area.buffer.cursor_down(count=10)
 
         @kb.add("c-up")
         def _scroll_logs_up(event):
@@ -467,9 +516,41 @@ class ConsoleService:
             if self._loop and self._loop.is_running():
                 asyncio.create_task(self._cmd_stop())
 
+        logs_frame = ConditionalContainer(
+            Frame(self.log_area, title="📡 System Logs (Ctrl+Up/Down to scroll • F3 to minimize)"),
+            filter=Condition(lambda: not self._logs_minimized),
+        )
+        logs_bar = ConditionalContainer(
+            Window(
+                content=FormattedTextControl(
+                    " 📡 System Logs: [MINIMIZED] — Press F3 or type 'restore logs' to expand"
+                ),
+                height=1,
+                style="class:minimized-bar.logs",
+            ),
+            filter=Condition(lambda: self._logs_minimized),
+        )
+
+        output_frame = ConditionalContainer(
+            Frame(self.output_area, title="💻 Terminal Output (PgUp/PgDn to scroll • F2 to minimize)"),
+            filter=Condition(lambda: not self._output_minimized),
+        )
+        output_bar = ConditionalContainer(
+            Window(
+                content=FormattedTextControl(
+                    " 💻 Terminal Output: [MINIMIZED] — Press F2/Ctrl+O or type 'restore' to expand"
+                ),
+                height=1,
+                style="class:minimized-bar",
+            ),
+            filter=Condition(lambda: self._output_minimized),
+        )
+
         body = HSplit([
-            Frame(self.log_area, title="📡 System Logs (Ctrl+Up/Down to scroll)"),
-            Frame(self.output_area, title="💻 Terminal Output (PgUp/PgDn to scroll)"),
+            logs_frame,
+            logs_bar,
+            output_frame,
+            output_bar,
             self.input_box,
         ])
 
@@ -545,6 +626,67 @@ class ConsoleService:
     def _show_escable_help(self) -> None:
         self._cmd_help()
 
+    def _toggle_output_minimized(self) -> None:
+        self._output_minimized = not self._output_minimized
+        if self.app:
+            self.app.invalidate()
+
+    def _toggle_logs_minimized(self) -> None:
+        self._logs_minimized = not self._logs_minimized
+        if self.app:
+            self.app.invalidate()
+
+    def _cmd_view(self, args: list[str]) -> None:
+        if not args:
+            self.write_output(
+                f"[VIEW] Current layout: output_minimized={self._output_minimized}, "
+                f"logs_minimized={self._logs_minimized}. Options: view <split|logs|output>"
+            )
+            return
+        target = args[0].lower()
+        if target in ("logs", "log"):
+            self._output_minimized = True
+            self._logs_minimized = False
+            self.write_output("📺 Layout switched to Logs view (Terminal output minimized). Press F2 to restore.")
+        elif target in ("output", "out"):
+            self._logs_minimized = True
+            self._output_minimized = False
+            self.write_output("📺 Layout switched to Output view (System logs minimized). Press F3 to restore.")
+        elif target in ("split", "both", "all"):
+            self._output_minimized = False
+            self._logs_minimized = False
+            self.write_output("📺 Layout switched to Split view (both panes visible).")
+        else:
+            self.write_output(f"[WARN] Unknown view mode '{target}'. Options: split, logs, output")
+        if self.app:
+            self.app.invalidate()
+
+    def _cmd_minimize(self, args: list[str]) -> None:
+        target = args[0].lower() if args else "output"
+        if target in ("logs", "log"):
+            self._logs_minimized = True
+            self.write_output("📺 System logs minimized. Press F3 to restore.")
+        else:
+            self._output_minimized = True
+            self.write_output("📺 Terminal output minimized. Press F2 or Ctrl+O to restore.")
+        if self.app:
+            self.app.invalidate()
+
+    def _cmd_restore(self, args: list[str]) -> None:
+        target = args[0].lower() if args else "all"
+        if target in ("logs", "log"):
+            self._logs_minimized = False
+            self.write_output("📺 System logs restored.")
+        elif target in ("output", "out"):
+            self._output_minimized = False
+            self.write_output("📺 Terminal output restored.")
+        else:
+            self._output_minimized = False
+            self._logs_minimized = False
+            self.write_output("📺 All panes restored to Split view.")
+        if self.app:
+            self.app.invalidate()
+
     async def handle_command(self, raw_line: str) -> None:
         """Parses and executes a console command line."""
         try:
@@ -559,6 +701,12 @@ class ConsoleService:
         cmd = parts[0].lower()
         args = parts[1:]
 
+        # Auto-expand output pane if user executes any command other than minimize/view/clear
+        if cmd not in ("view", "minimize", "clear") and self._output_minimized:
+            self._output_minimized = False
+            if self.app:
+                self.app.invalidate()
+
         try:
             # Commands unconditionally accessible when locked
             if cmd in ("help", "?"):
@@ -566,6 +714,15 @@ class ConsoleService:
                 return
             elif cmd == "clear":
                 self._cmd_clear(args)
+                return
+            elif cmd == "view":
+                self._cmd_view(args)
+                return
+            elif cmd == "minimize":
+                self._cmd_minimize(args)
+                return
+            elif cmd == "restore":
+                self._cmd_restore(args)
                 return
             elif cmd in ("stop", "exit", "quit"):
                 await self._cmd_stop()
