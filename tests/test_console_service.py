@@ -157,3 +157,33 @@ async def test_console_service_clear_command(mock_bot, mock_service, tmp_path):
         mock_stdout.write.assert_called_with("\033[2J\033[H")
 
     await db.close()
+
+
+def test_console_service_completer():
+    from tarveri.services.console_service import _console_completer
+
+    with patch("readline.get_line_buffer", return_value=""), patch("readline.get_begidx", return_value=0):
+        # Empty line: matches top-level commands
+        first = _console_completer("", 0)
+        assert first in ("help", "status", "guilds", "stats", "lookup", "verify", "unverify", "backup", "say", "broadcast", "eval", "clear", "stop", "exit", "quit")
+
+    with patch("readline.get_line_buffer", return_value="stats "), patch("readline.get_begidx", return_value=6):
+        # Subcommand stats options
+        assert _console_completer("", 0) == "overview"
+        assert _console_completer("", 1) == "faculties"
+
+    with patch("readline.get_line_buffer", return_value="backup "), patch("readline.get_begidx", return_value=7):
+        # Subcommand backup options
+        assert _console_completer("", 0) == "snapshot"
+        assert _console_completer("", 1) == "manual"
+
+
+def test_console_service_escable_help(mock_bot, mock_service, tmp_path):
+    settings = Settings(bot_token="test", id_hash_secret="secret123")
+    console = ConsoleService(mock_bot, MagicMock(), mock_service, settings)
+
+    # In non-TTY fallback, outputs help text
+    captured = io.StringIO()
+    with patch("sys.stdout", captured), patch("sys.stdin.isatty", return_value=False):
+        console._show_escable_help()
+    assert "TARVeri Console Commands" in captured.getvalue()

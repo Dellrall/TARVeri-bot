@@ -836,6 +836,11 @@ class ConsoleAwareStreamHandler(logging.StreamHandler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
+            # Audit log records for user console CMD input are saved to file logs,
+            # but not echoed back to console stdout since the user already typed them.
+            if record.name == "tarveri.console" and record.getMessage().startswith("[CMD]"):
+                return
+
             msg = self.format(record)
             stream = self.stream or sys.stdout
             if hasattr(stream, "isatty") and stream.isatty():

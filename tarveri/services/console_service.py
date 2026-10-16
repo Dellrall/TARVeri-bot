@@ -13,6 +13,7 @@ import logging
 import shlex
 import sys
 import threading
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import discord
@@ -46,11 +47,65 @@ AVAILABLE_COMMANDS = [
     "quit",
 ]
 
+SUBCOMMAND_OPTIONS: dict[str, list[str]] = {
+    "stats": ["overview", "faculties"],
+    "backup": ["snapshot", "manual"],
+}
+
+FACULTY_CODES = [
+    "FOCS",
+    "FAFB",
+    "FOET",
+    "FOAS",
+    "FOBE",
+    "FCCI",
+    "FSSH",
+    "CPUS",
+]
+
+HELP_LINES = [
+    "======================= TARVeri Console Commands =======================",
+    "  help, ?                         Show this interactive help reference",
+    "  status                          View bot latency, uptime, guilds, memory",
+    "  guilds                          List all connected Discord servers",
+    "  stats [overview|faculties]      Show verification metrics and faculty counts",
+    "  lookup <id_or_student_id>       Inspect member verification profile",
+    "  verify <student_id> <user_id>   Force-verify a user directly",
+    "  unverify <user_id> [reason]     Revoke verification and strip roles",
+    "  backup [subfolder]              Trigger immediate SQLite snapshot backup",
+    "  say <guild_id> <chan_id> <msg>  Send message to a channel as TARVeri",
+    "  broadcast <message>             Send announcement to all configured channels",
+    "  eval <code>                     Execute Python expression/statement",
+    "  clear                           Clear terminal screen",
+    "  stop, exit, quit                Gracefully shut down TARVeri",
+    "========================================================================",
+]
+
 
 def _console_completer(text: str, state: int) -> str | None:
-    options = [c for c in AVAILABLE_COMMANDS if c.startswith(text.lower())]
-    if state < len(options):
-        return options[state]
+    try:
+        import readline
+
+        buf = readline.get_line_buffer()
+        begidx = readline.get_begidx()
+        text_before = buf[:begidx].strip()
+        try:
+            words = shlex.split(text_before)
+        except ValueError:
+            words = text_before.split()
+    except Exception:
+        words = []
+
+    matches: list[str] = []
+    if not words:
+        matches = [c for c in AVAILABLE_COMMANDS if c.startswith(text.lower())]
+    elif len(words) == 1 and words[0] in SUBCOMMAND_OPTIONS:
+        matches = [opt for opt in SUBCOMMAND_OPTIONS[words[0]] if opt.startswith(text.lower())]
+    elif words[0] == "verify" and len(words) == 2:
+        matches = [f for f in FACULTY_CODES if f.startswith(text.upper())]
+
+    if state < len(matches):
+        return matches[state]
     return None
 
 
@@ -74,21 +129,15 @@ class ConsoleService:
         self.prompt = "tarveri> "
 
     def write_output(self, text: str) -> None:
-        """Outputs text cleanly without disrupting active prompt keystrokes."""
+        """Outputs text cleanly without redisplaying prompt mid-command."""
         stream = sys.stdout
         if stream is None or not hasattr(stream, "isatty") or not stream.isatty():
             print(text)
             return
 
         for line in str(text).splitlines():
-            stream.write(f"\r\033[K{line}\n")
+            stream.write(f"{line}\n")
         stream.flush()
-        try:
-            import readline
-
-            readline.redisplay()
-        except Exception as exc:
-            logger.debug("Readline redisplay notice: %s", exc)
 
     def start(self) -> None:
         """Starts the interactive console thread if running in an interactive terminal."""
@@ -108,12 +157,24 @@ class ConsoleService:
             sys.stdout.write("\033[r")
             sys.stdout.flush()
 
-        # Configure tab-completion and GNU readline
+        # Configure tab-completion and GNU readline history
         try:
             import readline
 
             readline.set_completer(_console_completer)
+            readline.set_completer_delims(" \t\n")
             readline.parse_and_bind("tab: complete")
+            try:
+                readline.set_auto_history(True)
+            except Exception as exc:
+                logger.debug("Readline auto history skipped: %s", exc)
+
+            history_file = Path("logs/.tarveri_history")
+            if history_file.exists():
+                try:
+                    readline.read_history_file(str(history_file))
+                except Exception as exc:
+                    logger.debug("Readline history read skipped: %s", exc)
         except Exception as exc:
             logger.debug("Readline binding skipped: %s", exc)
 
@@ -131,8 +192,60 @@ class ConsoleService:
     def stop(self) -> None:
         """Flags the console thread to stop and restores normal terminal state."""
         self.running = False
+        try:
+            import readline
+
+            history_file = Path("logs/.tarveri_history")
+            history_file.parent.mkdir(parents=True, exist_ok=True)
+            readline.set_history_length(1000)
+            readline.write_history_file(str(history_file))
+        except Exception as exc:
+            logger.debug("Readline history write skipped: %s", exc)
         if sys.stdout is not None and hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
             sys.stdout.write("\033[r\n")
+            sys.stdout.flush()
+
+    def _show_escable_help(self) -> None:
+        """Displays help menu in an alternate screen buffer dismissable with ESC, 'q', or Enter."""
+        if not (
+            sys.stdin
+            and hasattr(sys.stdin, "isatty")
+            and sys.stdin.isatty()
+            and sys.stdout
+            and hasattr(sys.stdout, "isatty")
+            and sys.stdout.isatty()
+        ):
+            self._cmd_help()
+            return
+
+        import termios
+        import tty
+
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            # Enter alternate screen buffer, clear screen, hide cursor
+            sys.stdout.write("\033[?1049h\033[H\033[2J\033[?25l")
+            content = "\n".join(HELP_LINES)
+            sys.stdout.write(
+                content + "\n\n  \033[90m[ Press ESC, 'q', or Enter to return to console ]\033[0m\n"
+            )
+            sys.stdout.flush()
+
+            tty.setcbreak(fd)
+            while True:
+                ch = sys.stdin.read(1)
+                if ch in ("\x1b", "q", "Q", "\r", "\n", " "):
+                    break
+        except Exception as exc:
+            logger.debug("Escable help notice: %s", exc)
+        finally:
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            except Exception as exc:
+                logger.debug("Terminal settings restore skipped: %s", exc)
+            # Show cursor, restore primary screen buffer
+            sys.stdout.write("\033[?25h\033[?1049l")
             sys.stdout.flush()
 
     def _reader_loop(self) -> None:
@@ -144,8 +257,29 @@ class ConsoleService:
                 if not cleaned:
                     continue
 
-                # Echo command
-                self.write_output(f"\033[33m[CMD] > {cleaned}\033[0m")
+                # Save to readline history so Up / Down arrow keys can scroll through history
+                try:
+                    import readline
+
+                    last_item = readline.get_history_item(
+                        readline.get_current_history_length()
+                    )
+                    if last_item != cleaned:
+                        readline.add_history(cleaned)
+                    history_file = Path("logs/.tarveri_history")
+                    history_file.parent.mkdir(parents=True, exist_ok=True)
+                    readline.set_history_length(1000)
+                    readline.write_history_file(str(history_file))
+                except Exception as exc:
+                    logger.debug("History save notice: %s", exc)
+
+                # Record user CMD input with timestamp into bot file logs
+                logger.info("[CMD] Executed: %s", cleaned)
+
+                # Escable help menu: rendered in alternate screen buffer so it never clutters logs or scrollback
+                if cleaned.lower() in ("help", "?"):
+                    self._show_escable_help()
+                    continue
 
                 if self._loop and self._loop.is_running():
                     future = asyncio.run_coroutine_threadsafe(
@@ -216,24 +350,7 @@ class ConsoleService:
     # ==========================================
 
     def _cmd_help(self) -> None:
-        help_text = """
-======================= TARVeri Console Commands =======================
-  help, ?                         Show this command reference
-  status                          View bot latency, uptime, guilds, memory
-  guilds                          List all connected Discord servers
-  stats                           Show verification metrics and faculty counts
-  lookup <id_or_student_id>       Inspect member verification profile
-  verify <student_id> <user_id>   Force-verify a user directly
-  unverify <user_id> [reason]     Revoke verification and strip roles
-  backup [subfolder]              Trigger immediate SQLite snapshot backup
-  say <guild_id> <chan_id> <msg>  Send message to a channel as TARVeri
-  broadcast <message>             Send announcement to all configured channels
-  eval <code>                     Execute Python expression/statement
-  clear                           Clear terminal screen
-  stop, exit, quit                Gracefully shut down TARVeri
-========================================================================
-"""
-        self.write_output(help_text.strip())
+        self.write_output("\n".join(HELP_LINES))
 
     def _cmd_clear(self) -> None:
         if sys.stdout is not None and hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
