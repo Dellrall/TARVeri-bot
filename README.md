@@ -86,25 +86,25 @@ node_email_service -->|"encrypted email & blind index"| node_database
 node_log_service -->|"writes audit events"| node_database
 node_litestream -.->|"replicates"| node_database
 
-click node_entry "https://github.com/dellrall/student-verifier/blob/main/tarveri_bot.py"
-click node_bot "https://github.com/dellrall/student-verifier/blob/main/tarveri/bot.py"
-click node_verification_cog "https://github.com/dellrall/student-verifier/blob/main/tarveri/cogs/verification_cog.py"
-click node_guest_cog "https://github.com/dellrall/student-verifier/blob/main/tarveri/cogs/guest_cog.py"
-click node_admin_cog "https://github.com/dellrall/student-verifier/blob/main/tarveri/cogs/admin_cog.py"
-click node_admin_dashboard "https://github.com/dellrall/student-verifier/blob/main/tarveri/cogs/admin_dashboard.py"
-click node_verification_service "https://github.com/dellrall/student-verifier/blob/main/tarveri/services/verification_service.py"
-click node_email_service "https://github.com/dellrall/student-verifier/blob/main/tarveri/services/email_service.py"
-click node_guest_service "https://github.com/dellrall/student-verifier/blob/main/tarveri/services/guest_service.py"
-click node_rate_limiter "https://github.com/dellrall/student-verifier/blob/main/tarveri/rate_limiter.py"
-click node_database "https://github.com/dellrall/student-verifier/blob/main/tarveri/database.py"
-click node_log_service "https://github.com/dellrall/student-verifier/blob/main/tarveri/services/log_service.py"
-click node_watchdog "https://github.com/dellrall/student-verifier/blob/main/tarveri/services/graduation_watchdog_service.py"
-click node_uptime "https://github.com/dellrall/student-verifier/blob/main/tarveri/services/uptime_service.py"
-click node_outage "https://github.com/dellrall/student-verifier/blob/main/tarveri/services/outage_service.py"
-click node_random_tag "https://github.com/dellrall/student-verifier/blob/main/tarveri/services/random_tag_service.py"
-click node_litestream "https://github.com/dellrall/student-verifier/blob/main/litestream.yml"
-click node_systemd "https://github.com/dellrall/student-verifier/blob/main/deploy/tarveri.service"
-click node_updater "https://github.com/dellrall/student-verifier/blob/main/scripts/update.sh"
+click node_entry "https://github.com/TARBot-OSS/TARVeri-bot/blob/main/tarveri_bot.py"
+click node_bot "https://github.com/TARBot-OSS/TARVeri-bot/blob/main/tarveri/bot.py"
+click node_verification_cog "https://github.com/TARBot-OSS/TARVeri-bot/blob/main/tarveri/cogs/verification_cog.py"
+click node_guest_cog "https://github.com/TARBot-OSS/TARVeri-bot/blob/main/tarveri/cogs/guest_cog.py"
+click node_admin_cog "https://github.com/TARBot-OSS/TARVeri-bot/blob/main/tarveri/cogs/admin_cog.py"
+click node_admin_dashboard "https://github.com/TARBot-OSS/TARVeri-bot/blob/main/tarveri/cogs/admin_dashboard.py"
+click node_verification_service "https://github.com/TARBot-OSS/TARVeri-bot/blob/main/tarveri/services/verification_service.py"
+click node_email_service "https://github.com/TARBot-OSS/TARVeri-bot/blob/main/tarveri/services/email_service.py"
+click node_guest_service "https://github.com/TARBot-OSS/TARVeri-bot/blob/main/tarveri/services/guest_service.py"
+click node_rate_limiter "https://github.com/TARBot-OSS/TARVeri-bot/blob/main/tarveri/rate_limiter.py"
+click node_database "https://github.com/TARBot-OSS/TARVeri-bot/blob/main/tarveri/database.py"
+click node_log_service "https://github.com/TARBot-OSS/TARVeri-bot/blob/main/tarveri/services/log_service.py"
+click node_watchdog "https://github.com/TARBot-OSS/TARVeri-bot/blob/main/tarveri/services/graduation_watchdog_service.py"
+click node_uptime "https://github.com/TARBot-OSS/TARVeri-bot/blob/main/tarveri/services/uptime_service.py"
+click node_outage "https://github.com/TARBot-OSS/TARVeri-bot/blob/main/tarveri/services/outage_service.py"
+click node_random_tag "https://github.com/TARBot-OSS/TARVeri-bot/blob/main/tarveri/services/random_tag_service.py"
+click node_litestream "https://github.com/TARBot-OSS/TARVeri-bot/blob/main/litestream.yml"
+click node_systemd "https://github.com/TARBot-OSS/TARVeri-bot/blob/main/deploy/tarveri.service"
+click node_updater "https://github.com/TARBot-OSS/TARVeri-bot/blob/main/scripts/update.sh"
 
 classDef toneNeutral fill:#f8fafc,stroke:#334155,stroke-width:1.5px,color:#0f172a
 classDef toneBlue fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
@@ -137,67 +137,38 @@ class node_watchdog,node_uptime,node_outage,node_litestream,node_systemd,node_up
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Setup
 
-### 1. Requirements
-* Python 3.10+ (Tested on Python 3.13)
-* A Discord bot with **Server Members Intent** and **Message Content Intent** enabled.
-* Bot role placed above all managed faculty/branch roles in Discord's role hierarchy.
+### 1. Prerequisites
+* Python 3.10+
+* Discord Bot Token with **Server Members Intent** and **Message Content Intent** enabled in [Discord Developer Portal](https://discord.com/developers/applications).
+* Bot role placed above all managed student/faculty roles in Discord's role hierarchy.
 
-### 2. Installation
-
+### 2. Install & Configure
 ```bash
-# Clone the repository
 git clone https://github.com/TARBot-OSS/TARVeri-bot.git
 cd TARVeri-bot
-
-# Create virtual environment & install dependencies
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-### 3. Configuration
-
-```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your credentials:
+Edit `.env`:
 ```env
 TARVERI_BOT_TOKEN="your_discord_bot_token"
 TARVERI_ID_HASH_SECRET="generate_with_secrets_token_hex_32"
 TARVERI_TIMEZONE="Asia/Kuala_Lumpur"
 ```
 
-### 4. Run the Bot
-
+### 3. Run
 ```bash
-# Standard run:
 python tarveri_bot.py
-
-# Or with continuous Litestream cloud replication to Cloudflare R2 / AWS S3:
-litestream replicate -log-level warn -config litestream.yml -exec ".venv/bin/python tarveri_bot.py"
 ```
 
-### 5. Production Service Deployment (Optional)
-
-Install and run as a 24/7 background service for your user without needing root/sudo:
+### 4. Background Service (Optional)
+Run 24/7 as a systemd user service without root/sudo:
 ```bash
-# Install bot and Litestream cloud replication as user services:
-./scripts/install_service.sh --user --with-litestream --enable-now
-
-# Check service status & logs:
-systemctl --user status tarveri
-journalctl --user -u tarveri -f
-```
-*(Or run with `./scripts/install_service.sh --system --with-litestream --enable-now` for system-wide `/etc/systemd/system` deployment)*
-
-### 6. Automated Updates
-
-```bash
-# Pull upstream updates with backup, venv sync & preflight tests:
-./scripts/update.sh
+./scripts/install_service.sh --user --enable-now
 ```
 
 ---
@@ -212,12 +183,13 @@ journalctl --user -u tarveri -f
 | `/card [member] [hidden]` | User | Generate high-DPI digital campus ID card. |
 | `/referral generate` | User | Generate a single-use guest referral code. |
 | `/admin dashboard` | Admin | Open the interactive Control Center dashboard. |
-| `/admin uptime` | Admin | View live continuous uptime, 24h/7d/30d SLA score, and recent downtime incident logs. |
+| `/admin uptime` | Admin | View live continuous uptime, 24h/7d/30d SLA score, and incident logs. |
 | `/admin user_info @user` | Admin | Inspect member verification status, join history & roles. |
 | `/admin diagnose` | Admin | Run role hierarchy and database self-healing diagnostics. |
 | `/admin panel` | Admin | Post streamlined 3-button verification gateway panel. |
 | `/admin src [action]` | Admin | Manage faculty SRC roles (status, enable, disable, remove). |
 | `/admin unverify @user` | Admin | Unlink student ID and revoke roles across servers. |
+| `/society_bridge pair [guild]` | Admin | Issue HMAC pairing token for TARClub society integration. |
 | `/randomtag [role] [count]` | Admin | Securely sample and tag random members of a target role. |
 
 ---
@@ -235,7 +207,7 @@ For full architectural breakdowns, security models, and operational runbooks, ex
 
 ## 🧪 Testing & Code Quality
 
-TARVeri includes a comprehensive, zero-warning automated test suite comprising **269 unit and integration tests** across 24 dedicated test suites:
+TARVeri includes a comprehensive, zero-warning automated test suite comprising **272 unit and integration tests** across 25 dedicated test suites:
 
 ```bash
 # Run the complete test suite:
