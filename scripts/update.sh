@@ -107,7 +107,7 @@ if ! command -v git >/dev/null 2>&1; then
     exit 1
 fi
 
-DEFAULT_REPO_URL="https://github.com/Dellrall/TARVeri-bot.git"
+DEFAULT_REPO_URL="https://github.com/TARBot-OSS/TARVeri-bot.git"
 REPO_URL="${TARVERI_REPO_URL:-${DEFAULT_REPO_URL}}"
 
 # Auto-initialize git if .git directory is missing
