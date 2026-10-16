@@ -7,7 +7,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import re
 import time
+import unicodedata
 from datetime import datetime
 from typing import Any
 
@@ -155,6 +157,7 @@ class StudentVerificationModal(discord.ui.Modal, title="🎓 TARUMT Student Veri
             self.student_email.placeholder = f"e.g. name-wm{current_yy}@student.tarc.edu.my (Optional)"
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
         raw_expiry = self.card_expiry.value.strip() if self.card_expiry.value else None
         student_id_val = self.student_id.value.strip()
         student_email_val = self.student_email.value.strip() if self.student_email.value else None
@@ -162,7 +165,6 @@ class StudentVerificationModal(discord.ui.Modal, title="🎓 TARUMT Student Veri
         if raw_expiry:
             iso_expiry = parse_card_expiry_date(raw_expiry)
             if not iso_expiry:
-                await interaction.response.defer(ephemeral=True)
                 current_yy = str(datetime.now().year)[-2:]
                 await interaction.followup.send(
                     f"❌ Invalid student card expiry date format. Please use `MM/YY` (e.g. `10/{(int(current_yy) + 2) % 100:02d}`) "
@@ -174,7 +176,6 @@ class StudentVerificationModal(discord.ui.Modal, title="🎓 TARUMT Student Veri
 
             is_anomalous, anomaly_reason = is_expiry_date_anomalous(iso_expiry, student_id=student_id_val)
             if is_anomalous:
-                await interaction.response.defer(ephemeral=True)
                 from tarveri.cogs.verification_cog import (
                     ExpiryAnomalyConfirmView,
                     build_expiry_anomaly_embed,
@@ -213,7 +214,6 @@ class StudentVerificationModal(discord.ui.Modal, title="🎓 TARUMT Student Veri
 
         # 1. If email is mandated for this guild, ensure student provided an email
         if is_email_active and guild_email_required and not student_email_val:
-            await interaction.response.defer(ephemeral=True)
             await interaction.followup.send(
                 "❌ Institutional student email is required for verification in this server. Please enter your official TARUMT email (e.g. `@student.tarc.edu.my`).",
                 ephemeral=True,
@@ -226,7 +226,6 @@ class StudentVerificationModal(discord.ui.Modal, title="🎓 TARUMT Student Veri
         #    - SMTP usage is NOT restricted (restrict_smtp is False) and student provided an email
         should_send_otp = is_email_active and student_email_val and (guild_email_required or not restrict_smtp)
         if should_send_otp:
-            await interaction.response.defer(ephemeral=True)
             from tarveri.cogs.verification_cog import OtpVerificationPromptView
             from tarveri.config import mask_email
 
@@ -265,7 +264,6 @@ class StudentVerificationModal(discord.ui.Modal, title="🎓 TARUMT Student Veri
             schedule_ttl_delete(interaction, delay=float(self.email_service.settings.email_otp_ttl_seconds))
             return
 
-        await interaction.response.defer(ephemeral=True)
         kwargs = {}
         if raw_expiry:
             kwargs["raw_expiry_date"] = raw_expiry
@@ -320,7 +318,8 @@ class ReferralEntryModal(discord.ui.Modal, title="🎟️ Enter Student Referral
             return
 
         await interaction.response.defer(ephemeral=True)
-        raw_code = self.code.value.strip().upper()
+        norm_code = unicodedata.normalize("NFKC", self.code.value or "")
+        raw_code = re.sub(r"[\s\u200b\u200c\u200d\ufeff\xa0]+", "", norm_code).strip().upper()
 
         success, msg, thread = await self.guest_service.open_guest_review_ticket(
             guild=interaction.guild,
@@ -434,6 +433,20 @@ class GuestApplicationModal(discord.ui.Modal, title="🌐 Guest Access Applicati
         schedule_ttl_delete(interaction, delay=60.0)
 
 
+async def _resolve_review_thread(
+    guest_service: GuestService,
+    interaction: discord.Interaction,
+    ticket: dict[str, Any],
+) -> discord.Thread | None:
+    """Safely resolves the review thread from interaction context or fetches by ticket channel ID."""
+    if isinstance(interaction.channel, discord.Thread):
+        return interaction.channel
+    if interaction.guild:
+        target_id = getattr(interaction.channel, "id", None) or ticket.get("channel_id")
+        return await guest_service._get_or_fetch_thread(interaction.guild, target_id)
+    return None
+
+
 class RejectReasonModal(discord.ui.Modal, title="🛑 Rejection Reason"):
     reason = discord.ui.TextInput(
         label="Reason for Rejection",
@@ -473,10 +486,14 @@ class RejectReasonModal(discord.ui.Modal, title="🛑 Rejection Reason"):
 
         await interaction.followup.send(reply_msg, ephemeral=True)
 
-        if isinstance(interaction.channel, discord.Thread):
-            await interaction.channel.send(
-                f"🛑 **Application Rejected by {interaction.user.mention}.** This thread will be locked and archived."
-            )
+        thread = await _resolve_review_thread(self.guest_service, interaction, self.ticket)
+        if thread:
+            try:
+                await thread.send(
+                    f"🛑 **Application Rejected by {interaction.user.mention}.** This thread will be locked and archived."
+                )
+            except (discord.HTTPException, discord.Forbidden):
+                pass
             await asyncio.sleep(1.5)
             members_to_remove = []
             if applicant_member:
@@ -487,7 +504,7 @@ class RejectReasonModal(discord.ui.Modal, title="🛑 Rejection Reason"):
                 members_to_remove.append(ref_m)
 
             res = self.guest_service.safe_close_and_archive_thread(
-                interaction.channel,
+                thread,
                 reason=f"TARVeri: Guest rejected by {interaction.user}",
                 members_to_remove=members_to_remove,
             )
@@ -536,17 +553,21 @@ class CloseTicketModal(discord.ui.Modal, title="🔒 Close Ticket (Without Kicki
 
             await interaction.followup.send(reply_msg, ephemeral=True)
 
-            if isinstance(interaction.channel, discord.Thread):
+            thread = await _resolve_review_thread(self.guest_service, interaction, self.ticket)
+            if thread:
                 reason_note = (
                     f'\n> **Reason:** *"{self.reason.value.strip()}"*'
                     if self.reason.value and self.reason.value.strip()
                     else ""
                 )
-                await interaction.channel.send(
-                    f"🔒 **Ticket manually closed by {interaction.user.mention}.**\n"
-                    f"*(Applicant remains in the server; no role changes or kicks executed)*{reason_note}\n\n"
-                    f"This thread will be locked and archived."
-                )
+                try:
+                    await thread.send(
+                        f"🔒 **Ticket manually closed by {interaction.user.mention}.**\n"
+                        f"*(Applicant remains in the server; no role changes or kicks executed)*{reason_note}\n\n"
+                        f"This thread will be locked and archived."
+                    )
+                except (discord.HTTPException, discord.Forbidden):
+                    pass
                 await asyncio.sleep(1.5)
                 members_to_remove = []
                 if applicant_member:
@@ -557,7 +578,7 @@ class CloseTicketModal(discord.ui.Modal, title="🔒 Close Ticket (Without Kicki
                     members_to_remove.append(ref_m)
 
                 res = self.guest_service.safe_close_and_archive_thread(
-                    interaction.channel,
+                    thread,
                     reason=f"TARVeri: Ticket manually closed by {interaction.user}",
                     members_to_remove=members_to_remove,
                 )
@@ -603,7 +624,8 @@ class VouchModal(discord.ui.Modal, title="🤝 Confirm Referral Vouch"):
             "✅ Your vouch statement has been recorded! Waiting for Admin team approval.", ephemeral=True
         )
         schedule_ttl_delete(interaction, delay=60.0)
-        if isinstance(interaction.channel, discord.Thread):
+        thread = await _resolve_review_thread(self.guest_service, interaction, self.ticket)
+        if thread:
             admin_mention = (
                 await self.guest_service.get_target_admin_mention(
                     interaction.guild, exclude_ids={interaction.user.id, self.ticket.get("applicant_id")}
@@ -611,12 +633,15 @@ class VouchModal(discord.ui.Modal, title="🤝 Confirm Referral Vouch"):
                 if interaction.guild
                 else "@Staff"
             )
-            await interaction.channel.send(
-                f"🤝 **Voucher {interaction.user.mention} confirmed vouch for <@{self.ticket['applicant_id']}>:**\n"
-                f"> {note}\n\n"
-                f"{admin_mention} **Step 1/2 of Double Verification complete!** Please review and click **`Approve Guest`** to admit or **`Reject / Veto`** to decline.",
-                allowed_mentions=discord.AllowedMentions(roles=True, users=True, everyone=False),
-            )
+            try:
+                await thread.send(
+                    f"🤝 **Voucher {interaction.user.mention} confirmed vouch for <@{self.ticket['applicant_id']}>:**\n"
+                    f"> {note}\n\n"
+                    f"{admin_mention} **Step 1/2 of Double Verification complete!** Please review and click **`Approve Guest`** to admit or **`Reject / Veto`** to decline.",
+                    allowed_mentions=discord.AllowedMentions(roles=True, users=True, everyone=False),
+                )
+            except (discord.HTTPException, discord.Forbidden):
+                pass
 
 
 def build_review_embed(
@@ -820,8 +845,24 @@ class GuestReviewThreadView(discord.ui.View):
             return
 
         ticket = await self.guest_service.db.get_guest_ticket_by_channel(interaction.channel.id)
-        if not ticket or ticket["status"] != "OPEN":
-            await interaction.response.send_message("⚠️ This ticket is already resolved or not found.", ephemeral=True)
+        if not ticket:
+            await interaction.response.send_message("⚠️ Ticket record not found.", ephemeral=True)
+            schedule_ttl_delete(interaction, delay=60.0)
+            return
+
+        if ticket.get("status") != "OPEN":
+            status_str = ticket.get("status")
+            if status_str == "APPROVED":
+                thread = await _resolve_review_thread(self.guest_service, interaction, ticket)
+                if thread and not getattr(thread, "archived", False):
+                    res = self.guest_service.safe_close_and_archive_thread(
+                        thread, reason=f"TARVeri: Cleaning up already approved thread by {interaction.user}"
+                    )
+                    if inspect.isawaitable(res):
+                        await res
+            await interaction.response.send_message(
+                f"⚠️ This ticket is already resolved ({status_str}).", ephemeral=True
+            )
             schedule_ttl_delete(interaction, delay=60.0)
             return
 
@@ -854,10 +895,14 @@ class GuestReviewThreadView(discord.ui.View):
 
             await interaction.followup.send(msg, ephemeral=True)
             schedule_ttl_delete(interaction, delay=60.0)
-            if isinstance(interaction.channel, discord.Thread):
-                await interaction.channel.send(
-                    f"🎉 **Application Approved by {interaction.user.mention}!** Double verification completed. This thread will be locked and archived."
-                )
+            thread = await _resolve_review_thread(self.guest_service, interaction, ticket)
+            if thread:
+                try:
+                    await thread.send(
+                        f"🎉 **Application Approved by {interaction.user.mention}!** Double verification completed. This thread will be locked and archived."
+                    )
+                except (discord.HTTPException, discord.Forbidden):
+                    pass
                 await asyncio.sleep(1.5)
                 members_to_remove = []
                 if applicant_member:
@@ -868,7 +913,7 @@ class GuestReviewThreadView(discord.ui.View):
                     members_to_remove.append(ref_m)
 
                 res = self.guest_service.safe_close_and_archive_thread(
-                    interaction.channel,
+                    thread,
                     reason=f"TARVeri: Guest approved by {interaction.user}",
                     members_to_remove=members_to_remove,
                 )
@@ -877,6 +922,17 @@ class GuestReviewThreadView(discord.ui.View):
         else:
             await interaction.followup.send(msg, ephemeral=True)
             schedule_ttl_delete(interaction, delay=60.0)
+            # If the ticket was already approved in DB, still make sure the thread is closed and archived
+            latest = await self.guest_service.db.get_guest_ticket_by_id(ticket["ticket_id"])
+            if latest and latest.get("status") == "APPROVED":
+                thread = await _resolve_review_thread(self.guest_service, interaction, ticket)
+                if thread and not getattr(thread, "archived", False):
+                    res = self.guest_service.safe_close_and_archive_thread(
+                        thread,
+                        reason="TARVeri: Ticket already marked approved, cleaning up open thread",
+                    )
+                    if inspect.isawaitable(res):
+                        await res
 
     @discord.ui.button(
         label="Reject / Veto",

@@ -7,8 +7,10 @@ from __future__ import annotations
 import asyncio
 import email.utils
 import logging
+import re
 import secrets
 import time
+import unicodedata
 from dataclasses import dataclass
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -320,7 +322,9 @@ class EmailService:
                     "pending": None,
                 }
 
-            clean_code = submitted_code.strip()
+            # Normalize full-width digits (IME) and remove spaces/hyphens/zero-width characters
+            clean_code = unicodedata.normalize("NFKC", submitted_code or "")
+            clean_code = re.sub(r"[\s\u200b\u200c\u200d\ufeff\xa0\-]+", "", clean_code).strip()
             if not secrets.compare_digest(pending.otp_code, clean_code):
                 pending.attempts_left -= 1
                 if pending.attempts_left <= 0:

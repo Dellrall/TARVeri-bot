@@ -402,10 +402,10 @@ class ReEnterExpiryModal(discord.ui.Modal, title="✏️ Re-enter Card Expiry Da
         self.card_expiry.placeholder = f"e.g. 10/{(int(current_yy) + 2) % 100:02d} or 31/10/{datetime.now().year + 2}"
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
         raw_val = self.card_expiry.value.strip()
         new_iso = parse_card_expiry_date(raw_val)
         if not new_iso:
-            await interaction.response.defer(ephemeral=True, thinking=True)
             current_yy = str(datetime.now().year)[-2:]
             await interaction.followup.send(
                 f"❌ Invalid date format. Please use `MM/YY` (e.g. `10/{(int(current_yy) + 2) % 100:02d}`) "
@@ -417,7 +417,6 @@ class ReEnterExpiryModal(discord.ui.Modal, title="✏️ Re-enter Card Expiry Da
 
         is_anomalous, anomaly_reason = is_expiry_date_anomalous(new_iso, student_id=self.student_id)
         if is_anomalous:
-            await interaction.response.defer(ephemeral=True, thinking=True)
             embed = build_expiry_anomaly_embed(
                 raw_input=raw_val,
                 parsed_iso=new_iso,
@@ -436,7 +435,6 @@ class ReEnterExpiryModal(discord.ui.Modal, title="✏️ Re-enter Card Expiry Da
             schedule_ttl_delete(interaction, delay=180.0)
             return
 
-        await interaction.response.defer(ephemeral=True, thinking=True)
         response_text = await self.service.perform_verification(
             interaction.user,
             self.student_id,
@@ -549,12 +547,12 @@ class FurtherStudyTransitionModal(discord.ui.Modal, title="TARUMT Level Progress
         self.card_expiry.placeholder = f"e.g. 10/{(int(current_yy) + 3) % 100:02d} (Optional)"
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
         raw_expiry = self.card_expiry.value.strip() if self.card_expiry.value else None
         student_id_val = self.student_id.value.strip()
         if raw_expiry:
             iso_expiry = parse_card_expiry_date(raw_expiry)
             if not iso_expiry:
-                await interaction.response.defer(ephemeral=True, thinking=True)
                 current_yy = str(datetime.now().year)[-2:]
                 await interaction.followup.send(
                     f"❌ Invalid student card expiry date format. Please use `MM/YY` (e.g. `10/{(int(current_yy) + 2) % 100:02d}`) "
@@ -566,7 +564,6 @@ class FurtherStudyTransitionModal(discord.ui.Modal, title="TARUMT Level Progress
 
             is_anomalous, anomaly_reason = is_expiry_date_anomalous(iso_expiry, student_id=student_id_val)
             if is_anomalous:
-                await interaction.response.defer(ephemeral=True, thinking=True)
                 embed = build_expiry_anomaly_embed(
                     raw_input=raw_expiry,
                     parsed_iso=iso_expiry,
@@ -585,7 +582,6 @@ class FurtherStudyTransitionModal(discord.ui.Modal, title="TARUMT Level Progress
                 schedule_ttl_delete(interaction, delay=180.0)
                 return
 
-        await interaction.response.defer(ephemeral=True, thinking=True)
         response_text = await self.service.perform_verification(
             interaction.user,
             student_id_val,
@@ -618,10 +614,10 @@ class ExtendExpiryModal(discord.ui.Modal, title="Extend Student Card Validity"):
         self.expiry_date.placeholder = f"e.g. 10/{(int(current_yy) + 1) % 100:02d}"
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
         raw_val = self.expiry_date.value.strip()
         iso_date = parse_card_expiry_date(raw_val)
         if not iso_date:
-            await interaction.response.defer(ephemeral=True, thinking=True)
             current_yy = str(datetime.now().year)[-2:]
             await interaction.followup.send(
                 f"❌ Invalid date format. Please use `MM/YY` (e.g. `10/{(int(current_yy) + 1) % 100:02d}`) or `YYYY-MM-DD`.",
@@ -632,7 +628,6 @@ class ExtendExpiryModal(discord.ui.Modal, title="Extend Student Card Validity"):
 
         is_anomalous, anomaly_reason = is_expiry_date_anomalous(iso_date)
         if is_anomalous:
-            await interaction.response.defer(ephemeral=True, thinking=True)
             embed = build_expiry_anomaly_embed(
                 raw_input=raw_val,
                 parsed_iso=iso_date,
@@ -651,7 +646,6 @@ class ExtendExpiryModal(discord.ui.Modal, title="Extend Student Card Validity"):
             schedule_ttl_delete(interaction, delay=180.0)
             return
 
-        await interaction.response.defer(ephemeral=True, thinking=True)
         await self.db.update_verification_profile(
             discord_user_id=interaction.user.id,
             card_expiry_date=iso_date,
@@ -834,6 +828,7 @@ class VerificationModal(discord.ui.Modal, title="🎓 TARUMT Student Verificatio
             self.student_email.placeholder = f"e.g. name-wm{current_yy}@student.tarc.edu.my (Optional)"
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
         raw_expiry = self.card_expiry.value.strip() if self.card_expiry.value else None
         student_id_val = self.student_id.value.strip()
         student_email_val = self.student_email.value.strip() if self.student_email.value else None
@@ -841,7 +836,6 @@ class VerificationModal(discord.ui.Modal, title="🎓 TARUMT Student Verificatio
         if raw_expiry:
             iso_expiry = parse_card_expiry_date(raw_expiry)
             if not iso_expiry:
-                await interaction.response.defer(ephemeral=True, thinking=True)
                 current_yy = str(datetime.now().year)[-2:]
                 await interaction.followup.send(
                     f"❌ Invalid student card expiry date format. Please use `MM/YY` (e.g. `10/{(int(current_yy) + 2) % 100:02d}`) "
@@ -853,7 +847,6 @@ class VerificationModal(discord.ui.Modal, title="🎓 TARUMT Student Verificatio
 
             is_anomalous, anomaly_reason = is_expiry_date_anomalous(iso_expiry, student_id=student_id_val)
             if is_anomalous:
-                await interaction.response.defer(ephemeral=True, thinking=True)
                 embed = build_expiry_anomaly_embed(
                     raw_input=raw_expiry,
                     parsed_iso=iso_expiry,
@@ -886,7 +879,6 @@ class VerificationModal(discord.ui.Modal, title="🎓 TARUMT Student Verificatio
 
         # 1. If email is mandated for this guild, ensure student provided an email
         if is_email_active and guild_email_required and not student_email_val:
-            await interaction.response.defer(ephemeral=True, thinking=True)
             await interaction.followup.send(
                 "❌ Institutional student email is required for verification in this server. Please enter your official TARUMT email (e.g. `@student.tarc.edu.my`).",
                 ephemeral=True,
@@ -899,7 +891,6 @@ class VerificationModal(discord.ui.Modal, title="🎓 TARUMT Student Verificatio
         #    - SMTP usage is NOT restricted (restrict_smtp is False) and student provided an email
         should_send_otp = is_email_active and student_email_val and (guild_email_required or not restrict_smtp)
         if should_send_otp:
-            await interaction.response.defer(ephemeral=True, thinking=True)
             # Pre-flight validation: check rate limiting, ID format & uniqueness, and email domain & uniqueness
             is_valid, preflight_err = await self.service.validate_preflight_for_otp(
                 user_id=interaction.user.id,
@@ -974,7 +965,6 @@ class VerificationModal(discord.ui.Modal, title="🎓 TARUMT Student Verificatio
             schedule_ttl_delete(interaction, delay=float(self.email_service.settings.email_otp_ttl_seconds))
             return
 
-        await interaction.response.defer(ephemeral=True, thinking=True)
         kwargs = {"raw_expiry_date": raw_expiry}
         if student_email_val:
             kwargs["raw_email"] = student_email_val
@@ -1008,7 +998,7 @@ class StudentOtpModal(discord.ui.Modal, title="🔢 Enter Verification Code"):
         label="6-Digit Verification Code",
         placeholder="e.g. 123456",
         min_length=6,
-        max_length=6,
+        max_length=12,
         required=True,
     )
 

@@ -336,6 +336,17 @@ class GuestRepoMixin(BaseRepoMixin):
             )
             return cursor.rowcount > 0
 
+    async def reopen_guest_ticket(self, ticket_id: int) -> bool:
+        """Reopens a ticket back to 'OPEN' state (e.g., following a failed downstream role assignment)."""
+        async with self.transaction() as conn:
+            cursor = await conn.execute(
+                """UPDATE guest_tickets
+                   SET status = 'OPEN', closed_at = NULL, closed_by_admin_id = NULL, close_reason = NULL
+                   WHERE ticket_id = ?""",
+                (ticket_id,),
+            )
+            return cursor.rowcount > 0
+
     async def list_guest_tickets(
         self, guild_id: int, status: str | None = None, limit: int = 10
     ) -> list[dict[str, Any]]:
