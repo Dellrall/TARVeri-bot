@@ -258,8 +258,19 @@ async def test_console_service_setup_admin_and_login_flow(mock_bot, mock_service
         await console.handle_command("login rootadmin")
     assert "No console administrators have been initialized yet" in captured.getvalue()
 
-    # 2. Setup admin with correct PAM auth (mocked)
-    with patch.object(console, "_pam_authenticate", return_value=True):
+    # 2. Setup admin rejected if not a Linux administrator
+    with patch("tarveri.services.console_service.is_linux_admin", return_value=False):
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            await console.handle_command("setup-admin rootadmin secretpassword")
+        assert "is not a Linux administrator" in captured.getvalue()
+        assert not console.is_authenticated
+
+    # 3. Setup admin with Linux admin and correct PAM auth (mocked)
+    with (
+        patch("tarveri.services.console_service.is_linux_admin", return_value=True),
+        patch.object(console, "_pam_authenticate", return_value=True),
+    ):
         captured = io.StringIO()
         with patch("sys.stdout", captured):
             await console.handle_command("setup-admin rootadmin secretpassword")
@@ -267,26 +278,27 @@ async def test_console_service_setup_admin_and_login_flow(mock_bot, mock_service
         assert console.is_authenticated
         assert console.authenticated_user == "rootadmin"
 
-    # 3. Subsequent setup-admin is blocked
-    captured = io.StringIO()
-    with patch("sys.stdout", captured):
-        await console.handle_command("setup-admin secondadmin secretpassword")
-    assert "An administrator account already exists" in captured.getvalue()
+    # 4. Subsequent setup-admin is blocked
+    with patch("tarveri.services.console_service.is_linux_admin", return_value=True):
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            await console.handle_command("setup-admin secondadmin secretpassword")
+        assert "An administrator account already exists" in captured.getvalue()
 
-    # 4. Lock / Logout
+    # 5. Lock / Logout
     captured = io.StringIO()
     with patch("sys.stdout", captured):
         await console.handle_command("lock")
     assert not console.is_authenticated
     assert "Console locked" in captured.getvalue()
 
-    # 5. Login unauthorized user
+    # 6. Login unauthorized user
     captured = io.StringIO()
     with patch("sys.stdout", captured):
         await console.handle_command("login fakeuser")
     assert "is not an authorized console administrator" in captured.getvalue()
 
-    # 6. Login authorized user with PAM failure -> increments failure count
+    # 7. Login authorized user with PAM failure -> increments failure count
     with patch.object(console, "_pam_authenticate", return_value=False):
         captured = io.StringIO()
         with patch("sys.stdout", captured):
@@ -332,18 +344,26 @@ async def test_console_service_user_management(mock_bot, mock_service, tmp_path)
         await console.handle_command("user list")
     assert "admin" in captured.getvalue()
 
-    # 2. User add
-    captured = io.StringIO()
-    with patch("sys.stdout", captured):
-        await console.handle_command("user add operator2")
-    assert "Added 'operator2' as authorized console administrator" in captured.getvalue()
-    assert await db.is_console_admin("operator2")
+    # 2. User add rejected if non-existent Linux user
+    with patch("pwd.getpwnam", side_effect=KeyError("not found")):
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            await console.handle_command("user add ghostuser")
+        assert "does not exist on this Linux system" in captured.getvalue()
 
-    # 3. Prevent duplicate add
-    captured = io.StringIO()
-    with patch("sys.stdout", captured):
-        await console.handle_command("user add operator2")
-    assert "already an authorized console administrator" in captured.getvalue()
+    # 3. User add succeeds for valid Linux user
+    with patch("pwd.getpwnam", return_value=MagicMock()):
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            await console.handle_command("user add operator2")
+        assert "Added 'operator2' as authorized console administrator" in captured.getvalue()
+        assert await db.is_console_admin("operator2")
+
+        # 4. Prevent duplicate add
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            await console.handle_command("user add operator2")
+        assert "already an authorized console administrator" in captured.getvalue()
 
     # 4. User remove
     captured = io.StringIO()

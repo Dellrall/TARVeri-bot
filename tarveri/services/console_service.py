@@ -147,6 +147,33 @@ def _console_completer(text: str, state: int) -> str | None:
     return None
 
 
+def is_linux_admin(username: str) -> bool:
+    """Checks if a username is an administrator (root or member of sudo/wheel) on the Linux system."""
+    try:
+        import grp
+        import pwd
+
+        pw = pwd.getpwnam(username)
+        if pw.pw_uid == 0:
+            return True
+
+        admin_groups = {"sudo", "wheel", "admin", "root"}
+        user_groups = set()
+        for g in grp.getgrall():
+            if username in g.gr_mem or g.gr_gid == pw.pw_gid:
+                user_groups.add(g.gr_name)
+
+        if user_groups & admin_groups:
+            return True
+
+        if username == getpass.getuser():
+            return True
+
+        return False
+    except (KeyError, ImportError, Exception):
+        return False
+
+
 class ConsoleService:
     """Provides an interactive Split-Screen TUI for TARVeri with upper logs and compact bottom prompt."""
 
@@ -561,6 +588,16 @@ class ConsoleService:
             logger.warning("PAM authentication exception for %s: %s", username, exc)
             return False
 
+    async def _is_authorized_admin(self, username: str) -> bool:
+        """Determines if a user has authority to access the console."""
+        # 1. Explicitly authorized in database
+        if await self.db.is_console_admin(username):
+            return True
+        # 2. Linux system administrator (sudo/wheel/root or bot process owner)
+        if is_linux_admin(username):
+            return True
+        return False
+
     async def _handle_password_input(self, password: str) -> None:
         username = self._pending_auth_user
         action = self._pending_auth_action
@@ -594,6 +631,9 @@ class ConsoleService:
                     description=f"First console administrator **{username}** was initialized via bootstrap.",
                     color=0x2ECC71,
                 )
+            else:
+                if not await self.db.is_console_admin(username):
+                    await self.db.add_console_admin(username, role="admin", added_by="linux_pam")
 
             self.write_output(f"🔓 [AUTH SUCCESS] Welcome, {username}! Console unlocked. Type 'help' for commands.")
             if self.app:
@@ -601,7 +641,7 @@ class ConsoleService:
 
             await self._dispatch_security_alert(
                 title="🔐 Console Login Successful",
-                description=f"Administrator **{username}** authenticated and unlocked backend terminal session.",
+                description=f"Administrator **{username}** authenticated via Linux PAM and unlocked backend terminal session.",
                 color=0x57F287,
             )
         else:
@@ -617,9 +657,7 @@ class ConsoleService:
                 )
 
     async def _cmd_setup_admin(self, args: list[str]) -> None:
-        if not args:
-            self.write_output("[WARN] Usage: setup-admin <username> [password]")
-            return
+        username = args[0].strip() if args else getpass.getuser()
 
         has_admin = await self.db.has_any_console_admin()
         if has_admin:
@@ -629,7 +667,12 @@ class ConsoleService:
             )
             return
 
-        username = args[0].strip()
+        if not is_linux_admin(username):
+            self.write_output(
+                f"❌ [AUTH ERROR] User '{username}' is not a Linux administrator (must belong to sudo/wheel group or root)."
+            )
+            return
+
         now = time.monotonic()
         if now < self._locked_until:
             rem = int(self._locked_until - now)
@@ -644,7 +687,7 @@ class ConsoleService:
             return
 
         self._is_password_mode = True
-        self.write_output(f"🔑 Initializing root admin '{username}'. Please enter system PAM password:")
+        self.write_output(f"🔑 Initializing root admin '{username}'. Please enter Linux PAM password:")
         if self.app:
             self.app.invalidate()
 
@@ -655,11 +698,8 @@ class ConsoleService:
             )
             return
 
-        if not args:
-            self.write_output("[WARN] Usage: login <username> [password]")
-            return
+        username = args[0].strip() if args else getpass.getuser()
 
-        username = args[0].strip()
         now = time.monotonic()
         if now < self._locked_until:
             rem = int(self._locked_until - now)
@@ -672,8 +712,7 @@ class ConsoleService:
             self.write_output(f"Run 'setup-admin {username}' to bootstrap this account as root administrator.")
             return
 
-        is_admin = await self.db.is_console_admin(username)
-        if not is_admin:
+        if not await self._is_authorized_admin(username):
             self.write_output(f"❌ [AUTH ERROR] User '{username}' is not an authorized console administrator.")
             return
 
@@ -685,7 +724,7 @@ class ConsoleService:
             return
 
         self._is_password_mode = True
-        self.write_output(f"🔑 Enter PAM password for '{username}':")
+        self.write_output(f"🔑 Enter Linux PAM password for '{username}':")
         if self.app:
             self.app.invalidate()
 
@@ -724,6 +763,14 @@ class ConsoleService:
                 self.write_output("[WARN] Usage: user add <username>")
                 return
             target = args[1].strip()
+            # Verify target exists as a valid Linux user
+            try:
+                import pwd
+                pwd.getpwnam(target)
+            except (KeyError, ImportError):
+                self.write_output(f"❌ [ERROR] User '{target}' does not exist on this Linux system.")
+                return
+
             if await self.db.is_console_admin(target):
                 self.write_output(f"[WARN] User '{target}' is already an authorized console administrator.")
                 return
