@@ -122,9 +122,13 @@ fi
 
 # Auto-migrate legacy remote URL from personal account to TARBot-OSS org
 CURRENT_REMOTE_URL="$(git remote get-url origin 2>/dev/null || true)"
-if echo "${CURRENT_REMOTE_URL}" | grep -q "Dellrall/TARVeri"; then
-    MIGRATED_REMOTE_URL=$(echo "${CURRENT_REMOTE_URL}" | sed 's/Dellrall/TARBot-OSS/g')
-    log_info "Migrating remote origin to TARBot-OSS: ${MIGRATED_REMOTE_URL}"
+if echo "${CURRENT_REMOTE_URL}" | grep -Eq "Dellrall/(Student-verifier|TARVeri)"; then
+    if echo "${CURRENT_REMOTE_URL}" | grep -q "^git@"; then
+        MIGRATED_REMOTE_URL="git@github.com:TARBot-OSS/TARVeri-bot.git"
+    else
+        MIGRATED_REMOTE_URL="https://github.com/TARBot-OSS/TARVeri-bot.git"
+    fi
+    log_info "Migrating legacy remote origin (${CURRENT_REMOTE_URL}) to: ${MIGRATED_REMOTE_URL}"
     git remote set-url origin "${MIGRATED_REMOTE_URL}"
 fi
 
