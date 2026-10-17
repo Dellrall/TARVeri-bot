@@ -1053,27 +1053,56 @@ class ConsoleService:
                     except Exception as exc:
                         logger.debug("Could not send DM to hoster: %s", exc)
 
-            # Send to configured review or welcome channel in guilds
+            # Send to #tarveri-log channel in guilds (identical to intercepted security actions)
             for guild in self.bot.guilds:
-                target_chan = None
-                try:
-                    g_settings = await self.db.get_guild_settings(guild.id)
-                    if g_settings:
-                        if g_settings.get("review_channel_id"):
-                            target_chan = guild.get_channel(g_settings["review_channel_id"])
-                        elif g_settings.get("welcome_channel_id"):
-                            target_chan = guild.get_channel(g_settings["welcome_channel_id"])
-                except Exception as exc:
-                    logger.debug("Guild settings lookup error: %s", exc)
-                if not target_chan:
-                    target_chan = guild.system_channel
-                if target_chan and isinstance(target_chan, discord.TextChannel):
-                    perms = target_chan.permissions_for(guild.me)
-                    if perms.send_messages and perms.embed_links:
-                        try:
-                            await target_chan.send(embed=embed)
-                        except Exception as exc:
-                            logger.debug("Failed sending security alert to %s: %s", target_chan.id, exc)
+                sent = False
+
+                # 1. Primary: Use VerificationService's send_admin_security_alert (which targets or provisions #tarveri-log)
+                verif_service = self.service or getattr(self.bot, "service", None)
+                if verif_service and hasattr(verif_service, "send_admin_security_alert"):
+                    try:
+                        sent = await verif_service.send_admin_security_alert(guild, embed)
+                    except Exception as exc:
+                        logger.debug("Failed sending security alert via send_admin_security_alert in %s: %s", guild.id, exc)
+
+                # 2. Secondary: Search for existing #tarveri-log channel directly
+                if not sent:
+                    target_names = {"tarveri-log", "tarveri_log", "tarveri-logs", "tarveri_logs"}
+                    text_channels = getattr(guild, "text_channels", []) or []
+                    target_chan = next(
+                        (ch for ch in text_channels if getattr(ch, "name", "").lower() in target_names),
+                        None,
+                    )
+                    if target_chan and isinstance(target_chan, discord.TextChannel):
+                        bot_member = getattr(guild, "me", None)
+                        perms = target_chan.permissions_for(bot_member) if bot_member else None
+                        if perms and perms.send_messages and perms.embed_links:
+                            try:
+                                await target_chan.send(embed=embed)
+                                sent = True
+                            except Exception as exc:
+                                logger.debug("Failed sending security alert to %s: %s", target_chan.id, exc)
+
+                # 3. Tertiary: Fallback to review_channel_id if configured (restricted admin review channel)
+                # NOTE: Never fall back to welcome_channel_id or system_channel to prevent leaking security logs to public chat
+                if not sent:
+                    try:
+                        g_settings = await self.db.get_guild_settings(guild.id)
+                        review_chan_id = None
+                        if isinstance(g_settings, (tuple, list)) and len(g_settings) > 3:
+                            review_chan_id = g_settings[3]
+                        elif isinstance(g_settings, dict):
+                            review_chan_id = g_settings.get("review_channel_id")
+
+                        if review_chan_id:
+                            target_chan = guild.get_channel(review_chan_id)
+                            if target_chan and isinstance(target_chan, discord.TextChannel):
+                                bot_member = getattr(guild, "me", None)
+                                perms = target_chan.permissions_for(bot_member) if bot_member else None
+                                if perms and perms.send_messages and perms.embed_links:
+                                    await target_chan.send(embed=embed)
+                    except Exception as exc:
+                        logger.debug("Review channel fallback lookup error: %s", exc)
         except Exception as exc:
             logger.debug("Security alert dispatch error: %s", exc)
 

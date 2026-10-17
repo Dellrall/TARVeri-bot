@@ -439,3 +439,71 @@ async def test_console_service_view_and_minimize_layout(mock_bot, mock_service, 
     assert not console._output_minimized
 
     await db.close()
+
+
+@pytest.mark.asyncio
+async def test_console_service_dispatch_security_alert_tarveri_log(mock_bot, mock_service, tmp_path):
+    """Ensure console login security alerts route exclusively to #tarveri-log and never to public channels."""
+    import discord
+
+    db = Database(str(tmp_path / "test.db"))
+    await db.connect()
+    settings = Settings(bot_token="test", id_hash_secret="secret123")
+
+    console = ConsoleService(mock_bot, db, mock_service, settings)
+
+    guild = MagicMock(spec=discord.Guild)
+    guild.id = 999999999
+    guild.system_channel = MagicMock(spec=discord.TextChannel)
+    guild.system_channel.send = AsyncMock()
+
+    # Public welcome channel configured in DB
+    welcome_chan = MagicMock(spec=discord.TextChannel)
+    welcome_chan.id = 12345
+    welcome_chan.send = AsyncMock()
+    guild.get_channel = MagicMock(return_value=welcome_chan)
+
+    await db.set_guild_welcome_channel(guild.id, welcome_chan.id)
+
+    mock_bot.guilds = [guild]
+
+    # Case 1: Primary path using verification_service.send_admin_security_alert
+    mock_service.send_admin_security_alert = AsyncMock(return_value=True)
+    await console._dispatch_security_alert(
+        title="🔐 Console Login Successful",
+        description="Admin authenticated",
+        color=0x57F287,
+    )
+
+    mock_service.send_admin_security_alert.assert_called_once()
+    assert mock_service.send_admin_security_alert.call_args[0][0] == guild
+    embed = mock_service.send_admin_security_alert.call_args[0][1]
+    assert embed.title == "🔐 Console Login Successful"
+    # Verify it NEVER sent to system_channel or welcome_channel
+    welcome_chan.send.assert_not_called()
+    guild.system_channel.send.assert_not_called()
+
+    # Case 2: Fallback when send_admin_security_alert returns False but #tarveri-log exists in text_channels
+    mock_service.send_admin_security_alert.return_value = False
+    log_chan = MagicMock(spec=discord.TextChannel)
+    log_chan.name = "tarveri-log"
+    log_chan.send = AsyncMock()
+    perms = MagicMock()
+    perms.send_messages = True
+    perms.embed_links = True
+    log_chan.permissions_for.return_value = perms
+    guild.text_channels = [log_chan]
+    guild.me = MagicMock()
+
+    await console._dispatch_security_alert(
+        title="🔐 Console Login Successful",
+        description="Admin authenticated fallback",
+        color=0x57F287,
+    )
+
+    log_chan.send.assert_called_once()
+    welcome_chan.send.assert_not_called()
+    guild.system_channel.send.assert_not_called()
+
+    await db.close()
+
