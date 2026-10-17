@@ -227,6 +227,9 @@ class ConsoleService:
         self._pending_auth_action: str = "login"
         self._failed_attempts: int = 0
         self._locked_until: float = 0.0
+        self._session_timeout: float = float(getattr(self.settings, "console_session_timeout", 300.0))
+        self._last_activity: float = 0.0
+        self._timeout_task: asyncio.Task | None = None
 
         # UI Minimization state
         self._output_minimized: bool = False
@@ -583,6 +586,7 @@ class ConsoleService:
         )
 
         self._task = asyncio.create_task(self._run_app())
+        self._timeout_task = asyncio.create_task(self._session_timeout_loop())
 
     async def _run_app(self) -> None:
         try:
@@ -593,6 +597,8 @@ class ConsoleService:
         except Exception as exc:
             logger.debug("Console TUI error: %s", exc)
         finally:
+            if self._timeout_task and not self._timeout_task.done():
+                self._timeout_task.cancel()
             self.is_active = False
             self.running = False
             ConsoleAwareStreamHandler._console_instance = None
@@ -627,6 +633,8 @@ class ConsoleService:
         self.running = False
         self.is_active = False
         ConsoleAwareStreamHandler._console_instance = None
+        if self._timeout_task and not self._timeout_task.done():
+            self._timeout_task.cancel()
         if self.app and self.app.is_running:
             self.app.exit()
         if self._task and not self._task.done():
@@ -717,6 +725,11 @@ class ConsoleService:
                 self.app.invalidate()
 
         try:
+            # Check session timeout on command execution
+            if self.is_authenticated and self._last_activity > 0:
+                if time.monotonic() - self._last_activity >= self._session_timeout:
+                    await self._handle_session_timeout()
+
             # Commands unconditionally accessible when locked
             if cmd in ("help", "?"):
                 self._cmd_help()
@@ -750,6 +763,9 @@ class ConsoleService:
                     "(or 'setup-admin <username>' if initializing for the first time)."
                 )
                 return
+
+            # Refresh session activity timestamp for authenticated session
+            self._last_activity = time.monotonic()
 
             # Authenticated commands
             if cmd in ("lock", "logout"):
@@ -844,6 +860,7 @@ class ConsoleService:
             self._failed_attempts = 0
             self.is_authenticated = True
             self.authenticated_user = username
+            self._last_activity = time.monotonic()
 
             if action == "setup_admin":
                 await self.db.add_console_admin(username, role="admin", added_by="bootstrap")
@@ -957,11 +974,54 @@ class ConsoleService:
         user = self.authenticated_user
         self.is_authenticated = False
         self.authenticated_user = None
+        self._last_activity = 0.0
         self._is_password_mode = False
         self._pending_auth_user = None
         self.write_output(f"🔒 [CONSOLE] User '{user}' logged out. Console locked.")
         if self.app:
             self.app.invalidate()
+
+    async def _handle_session_timeout(self) -> None:
+        """Handles automatic console lock when authenticated session exceeds idle timeout."""
+        if not self.is_authenticated:
+            return
+        user = self.authenticated_user
+        self.is_authenticated = False
+        self.authenticated_user = None
+        self._last_activity = 0.0
+        self._is_password_mode = False
+        self._pending_auth_user = None
+        mins = max(1, int(self._session_timeout // 60))
+        self.write_output(
+            f"⏰ [SESSION TIMEOUT] Console session for '{user}' timed out after "
+            f"{mins} minutes of inactivity. Console locked."
+        )
+        if self.app:
+            self.app.invalidate()
+        try:
+            await self._dispatch_security_alert(
+                title="⏰ Console Session Timed Out",
+                description=(
+                    f"Console session for administrator **{user}** timed out after "
+                    f"{mins} minutes of inactivity and was automatically locked."
+                ),
+                color=0xFEE75C,
+            )
+        except Exception as exc:
+            logger.debug("Failed dispatching session timeout alert: %s", exc)
+
+    async def _session_timeout_loop(self) -> None:
+        """Background watchdog that automatically locks the console if idle for 5 minutes."""
+        try:
+            while self.running:
+                await asyncio.sleep(5)
+                if self.is_authenticated and self._last_activity > 0:
+                    if time.monotonic() - self._last_activity >= self._session_timeout:
+                        await self._handle_session_timeout()
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.debug("Session timeout watchdog error: %s", exc)
 
     async def _cmd_user(self, args: list[str]) -> None:
         if not args:

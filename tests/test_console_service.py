@@ -507,3 +507,49 @@ async def test_console_service_dispatch_security_alert_tarveri_log(mock_bot, moc
 
     await db.close()
 
+
+@pytest.mark.asyncio
+async def test_console_service_session_timeout(mock_bot, mock_service, tmp_path):
+    """Ensure console session times out after 5 minutes of inactivity and auto-locks."""
+    import time
+
+    db = Database(str(tmp_path / "test.db"))
+    await db.connect()
+    settings = Settings(bot_token="test", id_hash_secret="secret123")
+
+    console = ConsoleService(mock_bot, db, mock_service, settings)
+    console.is_authenticated = True
+    console.authenticated_user = "admin"
+    console._last_activity = time.monotonic()
+
+    # 1. Active command within 5 minutes succeeds and refreshes _last_activity
+    prev_activity = console._last_activity
+    captured = io.StringIO()
+    with patch("sys.stdout", captured):
+        await console.handle_command("help")
+    assert console.is_authenticated
+    assert console._last_activity >= prev_activity
+
+    # 2. Simulate 5 minutes (301 seconds) of idle time
+    console._last_activity = time.monotonic() - 305
+
+    captured = io.StringIO()
+    with patch("sys.stdout", captured):
+        await console.handle_command("status")
+
+    output = captured.getvalue()
+    assert "SESSION TIMEOUT" in output
+    assert "Console session for 'admin' timed out after 5 minutes of inactivity" in output
+    assert "Console locked" in output
+    assert not console.is_authenticated
+    assert console.authenticated_user is None
+
+    # 3. Subsequent commands blocked until re-authenticated
+    captured = io.StringIO()
+    with patch("sys.stdout", captured):
+        await console.handle_command("status")
+    assert "[AUTH REQUIRED]" in captured.getvalue()
+
+    await db.close()
+
+
